@@ -271,7 +271,8 @@ export default function AmbilAntrianScreen() {
                       <View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <Text style={[styles.barberName, { color: theme.ink }]}>{b.nama}</Text>
-                          <Text style={[styles.barberRating, { color: theme.amber }]}>★ 4.9</Text>
+                          {/* Rating rata-rata dihitung di F2.2 (B5) */}
+                          <Text style={[styles.barberRating, { color: theme.amber }]}>★ —</Text>
                         </View>
                         <View style={[styles.statusBadge, { backgroundColor: isRest ? theme.neutral : theme.success }]}>
                           <Text style={styles.statusBadgeText}>

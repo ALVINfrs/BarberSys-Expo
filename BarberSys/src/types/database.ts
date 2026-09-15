@@ -21,6 +21,16 @@ export interface Treatment {
   harga: number;
   durasi_menit: number;
   deskripsi: string | null;
+  foto_url: string | null;
+  aktif: boolean;
+}
+
+export interface Product {
+  id: string;
+  nama: string;
+  harga: number;
+  kategori: string | null;
+  foto_url: string | null;
   aktif: boolean;
 }
 
@@ -32,6 +42,7 @@ export interface QueueItem {
   kasir_id: string | null;
   treatment_id: string | null;
   status: QueueStatus;
+  instruksi_potongan: string | null;
   rating: number | null;
   komentar: string | null;
   tip_amount: number;
@@ -41,8 +52,18 @@ export interface QueueItem {
   completed_at: string | null;
 }
 
+export interface QueueProduct {
+  id: string;
+  queue_id: string;
+  product_id: string | null;
+  qty: number;
+  subtotal: number;
+}
+
 export interface BarbershopSettings {
   id: string;
+  nama_toko: string | null;
+  alamat: string | null;
   jam_buka: string;
   jam_tutup: string;
 }

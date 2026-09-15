@@ -36,9 +36,11 @@ export default function KasirLayout() {
           ),
         }}
       />
+      {/* K2 hanya dibuka dari tombol "Panggil" di K1 dengan param queueId (PRD 13.1.4) */}
       <Tabs.Screen
         name="call"
         options={{
+          href: null,
           title: 'Panggil',
           tabBarIcon: ({ color }) => (
             <MaterialIcons name="campaign" size={22} color={color} />

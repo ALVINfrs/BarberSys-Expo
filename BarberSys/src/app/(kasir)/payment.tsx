@@ -218,30 +218,19 @@ export default function KasirPaymentScreen() {
                 </Text>
               </View>
 
-              <Text style={[styles.metodeTitle, { color: theme.ink }]}>Pilih Metode Pembayaran:</Text>
+              <Text style={[styles.metodeTitle, { color: theme.ink }]}>Metode Pembayaran:</Text>
 
+              {/* Fase 1: hanya TUNAI. Opsi QRIS dibuka di Fase 6 (B5). */}
               <View style={styles.metodeRow}>
-                <TouchableOpacity
+                <View
                   style={[
                     styles.metodeBtn,
                     brutalistCard(theme as any),
-                    metodeBayar === 'tunai' && { borderColor: theme.secondary, borderWidth: 3 },
+                    { borderColor: theme.secondary, borderWidth: 3 },
                   ]}
-                  onPress={() => setMetodeBayar('tunai')}
                 >
                   <Text style={[styles.metodeText, { color: theme.ink }]}>💵 TUNAI</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.metodeBtn,
-                    brutalistCard(theme as any),
-                    metodeBayar === 'qris' && { borderColor: theme.secondary, borderWidth: 3 },
-                  ]}
-                  onPress={() => setMetodeBayar('qris')}
-                >
-                  <Text style={[styles.metodeText, { color: theme.ink }]}>📱 QRIS</Text>
-                </TouchableOpacity>
+                </View>
               </View>
 
               {errorMessage ? (

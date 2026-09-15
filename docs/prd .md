@@ -132,6 +132,7 @@ flowchart TB
         Auth["Supabase Auth"]
         DB["PostgreSQL + Row Level Security"]
         Realtime["Realtime Engine\n(Postgres Changes)"]
+        Storage["Supabase Storage\n(foto profil, treatment, produk)"]
         EdgeFn["Edge Functions\n(buat akun pegawai, kirim notifikasi)"]
     end
 
@@ -141,6 +142,7 @@ flowchart TB
 
     Mobile <-->|REST API| Auth
     Mobile <-->|REST API| DB
+    Mobile <-->|Upload/Unduh File| Storage
     Mobile <-->|WebSocket| Realtime
     WebDisplay <-->|WebSocket| Realtime
     DB -->|trigger perubahan data| Realtime
@@ -159,6 +161,7 @@ flowchart TB
 | **Supabase Auth** | Menangani registrasi, login (email/password, serta Google OAuth khusus role Customer), sesi, dan reset password |
 | **PostgreSQL + RLS** | Sumber data tunggal; Row Level Security memastikan setiap role hanya bisa mengakses data sesuai haknya di level database, bukan hanya di sisi tampilan |
 | **Realtime Engine** | Mendorong perubahan tabel `queue` ke seluruh klien yang subscribe, tanpa perlu polling manual |
+| **Supabase Storage** | Menyimpan file foto (avatar profil, foto treatment, foto produk) dalam bucket terpisah, diakses lewat public URL (lihat Bagian 7.4) |
 | **Edge Functions** | Kode server-side ringan untuk operasi yang butuh hak akses tinggi (Service Role Key), seperti membuat akun pegawai dan memicu push notification |
 | **Expo Push Service** | Layanan eksternal Expo untuk mengirim notifikasi push ke perangkat User |
 
@@ -167,6 +170,16 @@ flowchart TB
 - **Expo** dipilih karena tidak butuh setup native project terpisah untuk Android/iOS, mendukung push notification dan cetak PDF bawaan, dan cukup di-demo lewat Expo Go tanpa proses build.
 - **Supabase** dipilih karena menyediakan database, autentikasi, dan realtime dalam satu layanan terkelola (hosted), sehingga kelompok tidak perlu membangun dan meng-hosting backend sendiri.
 - **Row Level Security (RLS)** menjadi lapisan keamanan utama — bukan hanya validasi role di sisi UI — agar setiap role hanya bisa mengakses data yang menjadi haknya, walau request API dipanggil langsung tanpa lewat aplikasi.
+
+### 6.5 Pustaka Tambahan (Dipakai di Fase Lanjutan)
+
+| Library | Dipakai untuk | Fase |
+|---|---|---|
+| `expo-image-picker` | Memilih foto dari galeri/kamera untuk diunggah (profil, treatment, produk) | Fase 2 |
+| `expo-print` + `expo-sharing` | Cetak/bagikan struk PDF, dan berbagi "Kirim Tiket" antrian | Fase 2–3 |
+| `react-native-qrcode-svg` | Kasir men-generate gambar QR code dari data transaksi (QRIS dummy) | Fase 6 |
+| `expo-camera` (Barcode Scanning API bawaan) | Customer memindai QR code QRIS dummy dari layar Kasir | Fase 6 |
+| `expo-notifications` | Push notification saat antrian dipanggil/mendekati giliran | Fase 5 |
 
 ---
 
@@ -200,6 +213,7 @@ erDiagram
         integer harga
         integer durasi_menit
         text deskripsi
+        text foto_url
         boolean aktif
     }
     PRODUCTS {
@@ -218,6 +232,7 @@ erDiagram
         uuid kasir_id FK
         uuid treatment_id FK
         text status
+        text instruksi_potongan
         integer rating
         text komentar
         integer tip_amount
@@ -235,6 +250,8 @@ erDiagram
     }
     BARBERSHOP_SETTINGS {
         uuid id PK
+        text nama_toko
+        text alamat
         time jam_buka
         time jam_tutup
     }
@@ -265,6 +282,7 @@ erDiagram
 | harga | integer | Harga tetap (Rupiah) |
 | durasi_menit | integer | Estimasi durasi pengerjaan |
 | deskripsi | text | Deskripsi singkat |
+| foto_url | text | Foto treatment, diunggah Admin lewat Supabase Storage (bucket `treatments`, lihat 7.4) |
 | aktif | boolean | Untuk soft-delete tanpa hapus data historis |
 
 **`products`** — katalog produk retail (pomade, powder, dll)
@@ -289,6 +307,7 @@ erDiagram
 | kasir_id | uuid (FK → profiles) | Kasir yang memproses |
 | treatment_id | uuid (FK → treatments) | Treatment yang dipilih |
 | status | text | `menunggu` / `dipanggil` / `dilayani` / `selesai` / `lunas` / `dibatalkan` |
+| instruksi_potongan | text | Catatan/permintaan khusus dari Customer untuk Barber (opsional, teks bebas) |
 | rating | integer | 1–5, nullable sampai User memberi rating |
 | komentar | text | Opsional |
 | tip_amount | integer | Nominal tip, default 0 |
@@ -312,6 +331,8 @@ erDiagram
 | Kolom | Tipe | Keterangan |
 |---|---|---|
 | id | uuid (PK) | |
+| nama_toko | text | Nama barbershop, ditampilkan di header Admin Dashboard |
+| alamat | text | Alamat toko |
 | jam_buka | time | Jam mulai operasional |
 | jam_tutup | time | Jam tutup operasional |
 
@@ -324,6 +345,24 @@ erDiagram
 | `queue` | User hanya bisa melihat & membuat baris miliknya sendiri; Barber hanya bisa melihat/mengubah baris yang `barber_id`-nya sama dengan dirinya; Kasir & Admin bisa melihat/mengubah semua baris |
 | `queue_products` | Mengikuti hak akses baris `queue` induknya |
 | `barbershop_settings` | Semua role bisa membaca; hanya Admin bisa mengubah |
+
+### 7.4 Supabase Storage — Bucket Foto
+
+Foto profil, treatment, dan produk disimpan sebagai file di **Supabase Storage** (bukan base64 di database) — kolom `foto_url` di tabel terkait hanya menyimpan tautan publik ke file tersebut.
+
+| Bucket | Isi | Kebijakan Akses |
+|---|---|---|
+| `avatars` | Foto profil seluruh role | Publik dapat membaca; pengguna hanya bisa mengunggah/mengganti foto miliknya sendiri (`auth.uid()` harus cocok dengan nama folder/file) |
+| `treatments` | Foto tiap Treatment | Publik dapat membaca; hanya role `admin` yang bisa mengunggah/mengganti |
+| `products` | Foto tiap Produk | Publik dapat membaca; hanya role `admin` yang bisa mengunggah/mengganti |
+
+**Alur unggah foto (berlaku untuk ketiga bucket, dipakai di seluruh layar yang punya tombol "Ubah Foto")**:
+1. Pengguna menekan foto/ikon kamera pada layar (Profile, form Treatment, atau form Produk).
+2. `expo-image-picker` membuka galeri atau kamera perangkat.
+3. Gambar terpilih diunggah ke bucket yang sesuai lewat `supabase.storage.from(bucket).upload(path, file)`.
+4. Supabase mengembalikan public URL file tersebut.
+5. URL itu disimpan ke kolom `foto_url` pada baris terkait (`profiles`, `treatments`, atau `products`) lewat `UPDATE`.
+6. Foto baru langsung tampil di UI (optimistic update), tanpa perlu reload layar.
 
 ---
 
@@ -559,16 +598,19 @@ stateDiagram-v2
 
 ## 12. Roadmap Fase Pengembangan
 
-Fitur dikerjakan berurutan per fase. Fase 1 adalah **MVP wajib** yang harus berfungsi penuh; Fase 2–5 adalah **fitur plus** yang dikerjakan sesuai waktu yang tersisa, tanpa mengganggu stabilitas MVP.
+Fitur dikerjakan berurutan per fase. Fase 1 adalah **MVP wajib** yang harus berfungsi penuh; Fase 2–6 adalah **fitur plus** yang dikerjakan sesuai waktu yang tersisa, tanpa mengganggu stabilitas MVP.
+
+> **Status per 14 September 2026**: Fase 0 dan Fase 1 sudah **selesai diimplementasikan**. Perubahan pada layar-layar Fase 1 mulai titik ini hanya boleh berupa perluasan non-breaking (menambah field/tab baru) sebagaimana dirinci di Bagian 13.2 dst — bukan membangun ulang struktur yang sudah ada, sesuai Aturan Kerja Bagian 19.
 
 | Fase | Fokus | Status |
 |---|---|---|
-| **Fase 0** | Fondasi: setup project, database, auth, role | Wajib |
-| **Fase 1** | MVP: alur inti antrian dari ambil sampai riwayat | Wajib |
-| **Fase 2** | Rating & Komentar, Produk & Perawatan | Plus (prioritas tinggi) |
-| **Fase 3** | Status Barber otomatis, Kebijakan Cancel, Cetak Struk | Plus |
-| **Fase 4** | Tip, Jam Operasional, Estimasi Waktu Tunggu, Export Laporan | Plus |
+| **Fase 0** | Fondasi: setup project, database, auth, role | ✅ Selesai |
+| **Fase 1** | MVP: alur inti antrian dari ambil sampai riwayat | ✅ Selesai |
+| **Fase 2** | Rating & Komentar, Produk & Perawatan, Instruksi Potongan, Profil & Foto (semua role), Foto Treatment, Statistik Kerja Barber, Kirim Tiket | Plus (prioritas tinggi) |
+| **Fase 3** | Status Barber otomatis, Kebijakan Cancel, Cetak Struk, Walk-in Customer | Plus |
+| **Fase 4** | Tip, Jam Operasional, Estimasi Waktu Tunggu, Export Laporan, Admin Dashboard Ringkasan, Kasir Dashboard Ringkasan | Plus |
 | **Fase 5** | Display TV + TTS, Push Notification | Plus (stretch) |
+| **Fase 6** | Simulasi Pembayaran QRIS (Dummy) | Plus (paling akhir) |
 
 ---
 
@@ -786,30 +828,130 @@ Fase 1 dinyatakan **selesai** hanya jika seluruh poin berikut terpenuhi — buka
 - [ ] RLS aktif dan sudah diuji minimal untuk skenario: Customer tidak bisa membaca antrian milik Customer lain; Barber tidak bisa mengubah antrian yang bukan miliknya.
 - [ ] Tidak ada elemen dari Fase 2 ke atas (rating, produk, tip, dsb.) yang ikut dibangun di tahap ini — sesuai Aturan Kerja Bagian 19.
 
-### FASE 2 — Rating, Komentar & Produk
+### FASE 2 — Rating, Komentar, Produk, Instruksi & Profil Lengkap
 - F2.1 Setelah status `lunas`, User diminta memberi Rating (1–5) dan Komentar opsional.
 - F2.2 Rating rata-rata Barber dihitung on-the-fly dari seluruh data rating.
 - F2.3 Katalog Produk & Perawatan, dikelola Admin (CRUD).
 - F2.4 User menambahkan Produk (dengan qty) sebagai add-on saat Ambil Antrian.
 - F2.5 Nota pembayaran Kasir menggabungkan Treatment + Produk.
-- F2.6 Kasir menambahkan Produk manual untuk pembelian walk-in.
+- F2.6 Kasir menambahkan Produk manual untuk pembelian walk-in (produk saja, tanpa treatment/antrian).
+- F2.7 Customer dapat mengisi **Instruksi Potongan** (opsional, teks bebas) saat Ambil Antrian; teks ini ditampilkan ke Barber di tiket tugasnya.
+- F2.8 Layar Profile pada **seluruh role** (Customer, Barber, Kasir, Admin) menjadi dapat diedit penuh (nama, no. HP) dan dilengkapi unggah/ganti foto profil lewat Supabase Storage.
+- F2.9 Admin dapat mengunggah/mengganti foto pada tiap Treatment (sebelumnya hanya Produk yang punya foto).
+- F2.10 Barber melihat ringkasan kerja hari ini di layar utamanya: jumlah pelanggan yang sudah dilayani hari ini dan estimasi total waktu kerja hari ini.
+- F2.11 Customer dapat membagikan ("Kirim Tiket") info nomor antriannya lewat share sheet perangkat (mis. WhatsApp) memakai `expo-sharing`.
 
-### FASE 3 — Status Barber, Kebijakan Cancel & Struk
+### FASE 3 — Status Barber, Kebijakan Cancel, Struk & Walk-in
 - F3.1 Status Tersedia/Sibuk otomatis; Istirahat manual (lihat Bagian 11.2).
 - F3.2 Barber berstatus Istirahat tidak dapat dipilih saat Ambil Antrian.
 - F3.3 User hanya bisa membatalkan antrian saat status masih `menunggu`.
 - F3.4 Kasir dapat mencetak/membagikan struk digital (PDF via `expo-print` + `expo-sharing`).
+- F3.5 Kasir dapat menambahkan antrian **Walk-in** secara manual (nama customer, treatment, barber) untuk customer yang datang langsung tanpa aplikasi.
 
-### FASE 4 — Tip, Jam Operasional, Estimasi & Laporan
+### FASE 4 — Tip, Jam Operasional, Estimasi, Laporan & Dashboard
 - F4.1 User dapat memberi Tip; Kasir dapat mencatat Tip tunai.
 - F4.2 Admin mengatur Jam Operasional; Ambil Antrian ditolak di luar jam operasional.
 - F4.3 Estimasi Waktu Tunggu ditampilkan saat memilih Barber.
 - F4.4 Admin dapat melihat dan mengekspor Laporan (PDF/Excel).
+- F4.5 **Admin Dashboard Ringkasan**: kartu statistik Omset Hari Ini, Tiket Selesai Hari Ini, Rating Kepuasan rata-rata, dan Jumlah Barber Aktif dari total Barber terdaftar — tampil di layar utama Admin.
+- F4.6 **Kasir Dashboard Ringkasan**: kartu statistik jumlah antrian per status (Menunggu/Dilayani/Siap Bayar) dan Omzet Hari Ini — tampil di layar utama Kasir.
 
 ### FASE 5 — Display TV & Notifikasi (Stretch)
 - F5.1 Halaman web publik menampilkan nomor antrian yang dipanggil + barber tujuan (Supabase Realtime).
 - F5.2 Pengumuman suara otomatis (Web Speech API, `lang: id-ID`) saat status berubah menjadi `dipanggil`.
 - F5.3 Push notification ke User saat antriannya mendekati giliran/dipanggil (Edge Function + Expo Push API).
+
+### FASE 6 — Simulasi Pembayaran QRIS (Dummy, Paling Akhir)
+- F6.1 Saat memproses pembayaran, Kasir dapat memilih metode **QRIS** (selain Tunai). Sistem men-generate QR code berisi data transaksi (id antrian, total tagihan, kode transaksi) dan menampilkannya di layar Kasir.
+- F6.2 Customer dapat memindai QR tersebut lewat fitur **Scan QRIS** di aplikasinya, memakai kamera sungguhan (`expo-camera`).
+- F6.3 Setelah memindai, Customer melihat ringkasan tagihan (nomor antrian, rincian treatment/produk, total) dan tombol "Bayar Sekarang".
+- F6.4 Menekan tombol tersebut mengubah `queue.status` menjadi `lunas`, `metode_bayar` menjadi `qris`, dan mencatat `completed_at` — seluruhnya tersimpan di database sistem sendiri (**bukan transaksi finansial nyata**, murni simulasi).
+- F6.5 Layar Kasir yang menampilkan QR otomatis mendeteksi perubahan status ini secara real-time (Supabase Realtime) dan berpindah ke tampilan "Pembayaran Diterima" tanpa perlu tombol konfirmasi manual dari Kasir.
+
+---
+
+### 13.2 Spesifikasi Layar Tambahan — Fase 2
+
+> Bagian ini berisi **perluasan** terhadap layar Fase 1 yang sudah ada (bukan pengganti) — ditambahkan sebagai field/tab baru sesuai Aturan Kerja Bagian 19.
+
+**Perluasan C2 — Ambil Antrian**
+- Tambahan elemen: setelah pemilihan Barber, tampilkan input teks multiline "Instruksi Potongan (opsional)" — placeholder: *"Contoh: taper fade tipis samping, atas rapikan sedikit saja"*.
+- Nilai ini disimpan ke `queue.instruksi_potongan` saat submit.
+- Tidak wajib diisi; boleh dikosongkan.
+
+**Perluasan B1 — Antrian Ditugaskan**
+- Tambahan header statistik di atas daftar tugas: dua kartu kecil — "Hari Ini: X Pelanggan" (`COUNT(queue) WHERE barber_id = current_user AND status = 'lunas' AND completed_at::date = today`) dan "Waktu Kerja: Xj Ym" (dihitung dari selisih `now()` dengan `MIN(called_at)` milik barber tersebut pada antrian hari ini — bukan sistem clock-in terpisah, cukup diturunkan dari data yang sudah ada).
+- Tiap kartu tugas kini juga menampilkan baris "Instruksi Potongan: [teks]" jika `instruksi_potongan` tidak kosong.
+- Rating rata-rata Barber (dari F2.2) ditampilkan di header layar (⭐ 4.9, "128 ulasan" dari `COUNT(rating)`).
+
+**Perluasan Profile — Berlaku untuk C5 (Customer), K4 (Kasir), B2 (Barber), AD3 (Admin)**
+- Foto profil kini bisa diubah: tap foto → `expo-image-picker` → unggah ke bucket `avatars` (lihat 7.4) → `foto_url` ter-update.
+- Field Nama dan No. HP menjadi dapat diedit di semua role (sebelumnya di Fase 1 hanya dijelaskan untuk Customer); tombol "Simpan Perubahan" melakukan `UPDATE profiles`.
+- Email tetap read-only (terikat ke akun Auth, tidak bisa diubah dari layar ini).
+
+**Perluasan AD1 — Kelola Treatment**
+- Form Tambah/Edit Treatment mendapat elemen baru: tap area foto → `expo-image-picker` → unggah ke bucket `treatments` → `foto_url` ter-update.
+- List Treatment di AD1 dan kartu Treatment di C1/C2 kini menampilkan foto (bila ada) di sisi kiri kartu.
+
+**Layar Baru — "Kirim Tiket" (dari C3 — Status Antrian)**
+- Tombol "Kirim Tiket" di C3 memanggil `expo-sharing` untuk membuka share sheet perangkat, berisi teks ringkas (nomor antrian, nama treatment, estimasi waktu). Tidak ada layar baru — cukup aksi share native.
+
+### 13.3 Spesifikasi Layar Tambahan — Fase 4 (Dashboard Admin & Kasir)
+
+**Perluasan AD1 → menjadi Admin Home bertab**
+
+Layar utama Admin sekarang terbagi jadi 3 tab (bukan langsung ke list Treatment):
+
+| Tab | Isi |
+|---|---|
+| **Ringkasan** | Kartu statistik: *Omset Hari Ini* (`SUM(total transaksi) WHERE status='lunas' AND completed_at::date = today`), *Tiket Selesai* (`COUNT(queue) WHERE status='lunas' AND completed_at::date = today`), *Kepuasan* (`AVG(rating)` dari seluruh data), *Barber Aktif* (`COUNT(profiles) WHERE role='barber' AND status_akun='aktif' AND status_kerja != 'istirahat'` dibanding total barber aktif) |
+| **Kelola Pegawai** | Konten AD2 yang sudah ada (list akun, tambah, nonaktifkan) — dipindah ke sini sebagai tab, bukan layar terpisah |
+| **Layanan & Produk** | Konten AD1 (Kelola Treatment) yang sudah ada, digabung dengan Kelola Produk, sebagai tab |
+
+- Header tab menampilkan `nama_toko` dan `alamat` dari `barbershop_settings` (Bagian 7.2).
+- Perpindahan AD2 dan AD1 menjadi tab adalah perubahan **navigasi**, bukan perubahan logika/fungsi — seluruh aksi (tambah pegawai, nonaktifkan, CRUD treatment) tetap identik dengan yang sudah dibangun di Fase 1.
+
+**Perluasan K1 — Dashboard Antrian Masuk**
+- Tambahan header statistik: 4 kartu kecil — *Menunggu* (`COUNT WHERE status='menunggu'`), *Sedang Dilayani* (`COUNT WHERE status='dilayani'`), *Siap Bayar* (`COUNT WHERE status='selesai'`), *Omzet Hari Ini* (sama seperti perhitungan Admin, tapi bisa ditampilkan tanpa filter kasir tertentu — satu toko, satu angka).
+- Tombol **"+ Walk-in"** di header K1 membuka form singkat: Nama Customer, pilih Treatment, pilih Barber (opsional) → `INSERT INTO queue (...)` dengan `user_id = NULL` (atau akun "Guest" khusus, sesuai keputusan tim) dan `status = 'menunggu'`, langsung muncul di list antrian seperti biasa.
+
+### 13.4 Spesifikasi Layar — Fase 6 (Simulasi QRIS Dummy)
+
+**Perluasan K3 — Proses Pembayaran**
+- Tombol metode bayar sekarang punya dua opsi: **Tunai** (perilaku sama seperti sebelumnya — langsung `UPDATE status='lunas'` saat Kasir menekan Konfirmasi) dan **QRIS** (alur baru di bawah).
+- Jika Kasir memilih QRIS: layar menampilkan gambar QR code besar (di-generate `react-native-qrcode-svg` dari string JSON `{ queueId, total, kodeTransaksi, timestamp }`), teks total tagihan, dan status "Menunggu pembayaran dari customer...".
+- Layar ini **subscribe realtime** ke baris `queue` tersebut; begitu `status` berubah jadi `lunas` (dipicu Customer di layar Scan QRIS), tampilan otomatis berubah jadi "✅ Pembayaran Diterima" tanpa Kasir perlu menekan apa pun lagi.
+
+**Layar Baru — Scan QRIS (Customer)**
+- Route: `/scan-qris`, diakses dari tombol "Bayar dengan QRIS" di layar C3 (Status Antrian), muncul hanya saat antrian berstatus `selesai` (menunggu bayar).
+- Elemen UI: viewfinder kamera (`expo-camera`, mode Barcode Scanning), instruksi "Arahkan kamera ke QR code di kasir".
+- Setelah QR berhasil dipindai, tampilkan ringkasan tagihan dalam bottom sheet: nomor antrian, daftar item (treatment + produk), total tagihan, tombol besar **"Bayar Sekarang"**.
+- Aksi tombol: `UPDATE queue SET status = 'lunas', metode_bayar = 'qris', completed_at = now() WHERE id = <dari data QR>`.
+- Setelah sukses, tampilkan layar konfirmasi "Pembayaran berhasil" lalu redirect ke C4 (Riwayat).
+
+**Sequence Diagram — Alur QRIS Dummy**
+
+```mermaid
+sequenceDiagram
+    actor Kasir
+    participant AppK as Expo App (Kasir)
+    participant DB as Supabase (Postgres + Realtime)
+    actor Cust as Customer
+    participant AppC as Expo App (Customer)
+
+    Kasir->>AppK: Pilih metode bayar "QRIS"
+    AppK->>AppK: Generate QR code (queueId, total, kodeTransaksi)
+    AppK->>DB: Subscribe realtime ke baris queue ini
+    Cust->>AppC: Buka "Scan QRIS", arahkan kamera ke layar Kasir
+    AppC->>AppC: Baca data dari QR code
+    AppC->>Cust: Tampilkan ringkasan tagihan
+    Cust->>AppC: Tekan "Bayar Sekarang"
+    AppC->>DB: UPDATE queue SET status='lunas', metode_bayar='qris'
+    DB-->>AppK: Realtime event: status berubah
+    AppK->>Kasir: Tampilkan "Pembayaran Diterima"
+```
+
+> **Catatan penting — ini tetap simulasi (dummy)**: QR code yang digenerate dan dipindai di sini **sungguhan berfungsi** (bukan gambar statis), tapi tidak terhubung ke penyedia QRIS asli (tidak ada API bank/switching nasional). "Pembayaran" hanya berarti kedua sisi (Kasir & Customer) sepakat menandai transaksi `lunas` di database milik sistem sendiri — cocok untuk demonstrasi alur scan-and-pay tanpa perlu integrasi finansial nyata (tetap konsisten dengan batasan Out of Scope di Bagian 4.2).
 
 ---
 
@@ -832,6 +974,8 @@ Fase 1 dinyatakan **selesai** hanya jika seluruh poin berikut terpenuhi — buka
 4. Harga treatment dan produk bersifat tetap, ditentukan Admin — tidak ada perhitungan dinamis/diskon otomatis dalam scope ini.
 5. Akun Barber/Kasir yang dinonaktifkan tidak dihapus dari database, hanya diberi status nonaktif.
 6. Login dengan Google hanya berlaku untuk role Customer. Barber, Kasir, dan Admin selalu dibuatkan akun oleh Admin dan login menggunakan email/password — tidak ada jalur Google atau pendaftaran mandiri dalam bentuk apa pun untuk ketiga role tersebut.
+7. Fitur QRIS (Fase 6) adalah **simulasi (dummy)** untuk kebutuhan demo — QR code digenerate dan dipindai secara sungguhan, namun tidak terhubung ke gateway pembayaran nyata; status `lunas` hanya mencerminkan pencatatan internal sistem, bukan transaksi finansial nyata (konsisten dengan Bagian 4.2).
+8. Antrian Walk-in yang dibuat Kasir mengikuti alur status yang sama persis dengan antrian dari Customer (`menunggu` → `dipanggil` → ... → `lunas`) — tidak ada perlakuan khusus lain.
 
 ---
 
@@ -863,6 +1007,8 @@ Fase 1 dinyatakan **selesai** hanya jika seluruh poin berikut terpenuhi — buka
 - **Edge Function**: fungsi server-side ringan di Supabase, dipakai untuk operasi yang butuh Service Role Key.
 - **OAuth**: protokol otorisasi yang memungkinkan login memakai akun pihak ketiga (di sini: Google) tanpa aplikasi perlu menyimpan password pengguna.
 - **BaaS (Backend-as-a-Service)**: model layanan yang menyediakan backend siap pakai (database, auth, realtime) tanpa perlu membangun server sendiri.
+- **QRIS Dummy**: simulasi pembayaran lewat QR code yang benar-benar bisa digenerate dan dipindai, tapi tidak terhubung ke gateway pembayaran nyata — status lunas hanya pencatatan internal (lihat Fase 6, Bagian 13.4).
+- **Supabase Storage**: layanan penyimpanan file milik Supabase, dipakai untuk menyimpan foto profil, treatment, dan produk sebagai file (bukan base64 di database).
 
 ---
 
@@ -920,7 +1066,14 @@ Tabel ini adalah tempat menampung **semua temuan, kekurangan, dan ide tambahan**
 
 | No | Fase Asal | Deskripsi Temuan / Ide | Usulan Solusi | Prioritas | Status |
 |---|---|---|---|---|---|
-| — | — | *(belum ada entri — isi tabel ini seiring berjalannya setiap Checkpoint Review)* | — | — | Belum ditinjau |
+| B1 | Fase 1 | Tambah akun Barber/Kasir tanpa Edge Function (pakai `tempSupabase.signUp`), menyimpang dari UC-04/AD2 | Buat Edge Function `create-staff` (service_role) + ganti `admin/staff.tsx` memanggil fungsi tersebut | Tinggi | Selesai |
+| B2 | Fase 1 | RLS pakai `user_metadata` (bisa diedit user) + `Profiles select` terlalu longgar; belum ada bukti uji 2 skenario DoD | Migrasi policy ke cek `profiles.role`/`is_admin()`, ketatkan select profiles, uji negatif customer & barber | Tinggi | Selesai |
+| B3 | Fase 1 | K2 (`call.tsx`) terdaftar sebagai tab mandiri, seharusnya `/kasir/queue/:id/call` dari tombol K1 | Sembunyikan tab `call` (`href:null`), hanya via `router.push({queueId})` | Sedang | Selesai |
+| B4 | Fase 1 | Alur Google login client tidak eksplisit menangani auto-create `profiles` (mengandalkan trigger saja) | Tambah penanganan error + pastikan `foto_url`/nama dari Google tersimpan, tanpa insert manual ganda (trigger `on_auth_user_created` tetap) | Sedang | Selesai |
+| B5 | Fase 1 | Kebocoran scope: selector Tunai/QRIS di payment (F4.1/F6.1), rating ★4.9 hardcode di ambil-antrian (F2.2) | Kunci payment ke `tunai` sampai Fase 6; ganti rating hardcode jadi "—" sampai F2.2 | Sedang | Selesai |
+| B6 | Skema (prasyarat Fase 2) | Missing vs Bagian 7: tabel `products`, `treatments.foto_url`, `queue.instruksi_potongan`, `barbershop_settings.nama_toko/alamat`, buckets `avatars/treatments/products` (+FK `queue_products.product_id`) | Migrasi skema + Storage policy + sinkron `src/types/database.ts` sebelum F2.3/F2.7/F2.9 | Tinggi | Selesai |
+| B7 | Desain | `ThemeContext` light `bg #FCF9F8` vs `design.md #FAFAF7`; dark `cardBorder #333338` bukan `ink` | Samakan ke token design.md atau catat sebagai keputusan sadar | Rendah | Disetujui, menunggu jadwal |
+| B8 | Fase 1 | `npx tsc --noEmit` gagal di file sisa template (app-tabs, themed-view, collapsible, dsb. merujuk API tema lama `Colors`/`ThemeColor`) — pre-existing, di luar file Fase 1 | Rapikan/hapus komponen tak terpakai atau selaraskan ke token baru; tidak blokir runtime Expo | Rendah | Belum ditinjau |
 
 **Keterangan kolom:**
 - **Fase Asal**: fase di mana temuan ini muncul (mis. "Fase 1").

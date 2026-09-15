@@ -11,7 +11,6 @@ import {
   Switch,
   Alert,
 } from 'react-native';
-import { createClient } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { Profile, AccountStatus } from '@/types/database';
 import { RoleHeader } from '@/components/RoleHeader';
@@ -85,38 +84,19 @@ export default function AdminStaffScreen() {
     setSubmitting(true);
 
     try {
-      // Use secondary client without session persistence so Admin session is not replaced
-      const url = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
-      const key = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
-      const tempSupabase = createClient(url, key, { auth: { persistSession: false } });
-
-      const { data: authData, error: authErr } = await tempSupabase.auth.signUp({
-        email: email.trim(),
-        password,
-        options: {
-          data: {
-            nama: nama.trim(),
-            no_hp: noHp.trim(),
-            role,
-          },
+      // Wajib via Edge Function agar sesi Admin tidak ter-replace (UC-04/AD2)
+      const { data, error } = await supabase.functions.invoke('create-staff', {
+        body: {
+          nama: nama.trim(),
+          email: email.trim(),
+          no_hp: noHp.trim(),
+          role,
+          password,
         },
       });
 
-      if (authErr) throw authErr;
-
-      const newUserId = authData.user?.id;
-      if (newUserId) {
-        // Ensure profile role is explicitly updated to barber/kasir
-        await supabase
-          .from('profiles')
-          .update({
-            role,
-            nama: nama.trim(),
-            no_hp: noHp.trim(),
-            status_akun: 'aktif',
-          })
-          .eq('id', newUserId);
-      }
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
 
       setModalVisible(false);
       fetchStaff();

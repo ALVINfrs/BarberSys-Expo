@@ -109,9 +109,23 @@ export default function LoginScreen() {
         if (res.type === 'success' && res.url) {
           const { queryParams } = Linking.parse(res.url);
           if (queryParams?.code) {
-            await supabase.auth.exchangeCodeForSession(queryParams.code as string);
+            const { error: exchangeErr } = await supabase.auth.exchangeCodeForSession(
+              queryParams.code as string
+            );
+            if (exchangeErr) throw exchangeErr;
           }
-          await refreshProfile();
+          // Profil dibuat otomatis oleh trigger on_auth_user_created (role customer);
+          // client hanya membaca ulang, tanpa insert manual ganda (B4).
+          let prof = await refreshProfile();
+          if (!prof) {
+            await new Promise((r) => setTimeout(r, 1500));
+            prof = await refreshProfile();
+          }
+          if (!prof) {
+            setErrorMessage('Login Google berhasil, tetapi profil belum terbentuk. Coba masuk lagi.');
+            setGoogleLoading(false);
+            return;
+          }
           router.replace('/(customer)/home' as any);
         }
       }
