@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
@@ -12,7 +13,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
-import { Treatment, Profile } from '@/types/database';
+import { Treatment, Profile, Product } from '@/types/database';
 import { useAuth } from '@/context/AuthContext';
 import { RoleHeader } from '@/components/RoleHeader';
 import { brutalistCard, brutalistButton } from '@/constants/theme';
@@ -26,8 +27,15 @@ export default function AmbilAntrianScreen() {
 
   const [treatments, setTreatments] = useState<Treatment[]>([]);
   const [barbers, setBarbers] = useState<Profile[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [selectedTreatment, setSelectedTreatment] = useState<Treatment | null>(null);
   const [selectedBarberId, setSelectedBarberId] = useState<string | null>(null);
+  const [qtyMap, setQtyMap] = useState<Record<string, number>>({});
+  // F2.7: instruksi potongan opsional
+  const [instruksi, setInstruksi] = useState('');
+  const [instruksiFocused, setInstruksiFocused] = useState(false);
+  // F2.2: rating rata-rata per barber { avg, count }
+  const [barberRatings, setBarberRatings] = useState<Record<string, { avg: number; count: number }>>({});
 
   const [loadingData, setLoadingData] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -65,7 +73,29 @@ export default function AmbilAntrianScreen() {
         .eq('status_akun', 'aktif');
 
       if (barbErr) throw barbErr;
-      setBarbers((barbData as Profile[]) || []);
+      const barbList = (barbData as Profile[]) || [];
+      setBarbers(barbList);
+
+      // F2.2: rating rata-rata on-the-fly per barber (via RPC agregat, aman RLS)
+      const { data: rateData } = await supabase.rpc('barber_rating_stats');
+      if (rateData) {
+        const avgMap: Record<string, { avg: number; count: number }> = {};
+        ((rateData as any[]) || []).forEach((r) => {
+          if (!r.barber_id) return;
+          avgMap[r.barber_id] = { avg: Number(r.avg_rating), count: Number(r.rating_count) };
+        });
+        setBarberRatings(avgMap);
+      }
+
+      // 3. Fetch active products (F2.4 add-on)
+      const { data: prodData, error: prodErr } = await supabase
+        .from('products')
+        .select('*')
+        .eq('aktif', true)
+        .order('harga', { ascending: true });
+
+      if (prodErr) throw prodErr;
+      setProducts((prodData as Product[]) || []);
     } catch (e: any) {
       console.error('Error loading queue form data:', e);
       setErrorMessage('Gagal memuat data treatment atau barber.');
@@ -79,6 +109,20 @@ export default function AmbilAntrianScreen() {
   }, [params.selectedTreatmentId]);
 
   const formatRupiah = (val: number) => 'Rp ' + val.toLocaleString('id-ID');
+
+  const changeQty = (productId: string, delta: number) => {
+    setQtyMap((prev) => ({
+      ...prev,
+      [productId]: Math.max(0, (prev[productId] || 0) + delta),
+    }));
+  };
+
+  const productsTotal = products.reduce(
+    (sum, p) => sum + (qtyMap[p.id] || 0) * p.harga,
+    0
+  );
+
+  const grandTotal = (selectedTreatment?.harga || 0) + productsTotal;
 
   const handleAmbilAntrian = async () => {
     if (!selectedTreatment || !user) {
@@ -116,11 +160,27 @@ export default function AmbilAntrianScreen() {
           treatment_id: selectedTreatment.id,
           barber_id: selectedBarberId, // null means "Siapa saja"
           status: 'menunggu',
+          instruksi_potongan: instruksi.trim() || null, // F2.7
         })
         .select()
         .single();
 
       if (insertErr) throw insertErr;
+
+      // F2.4: simpan add-on produk (qty > 0) ke queue_products
+      const items = products
+        .filter((p) => (qtyMap[p.id] || 0) > 0)
+        .map((p) => ({
+          queue_id: (newQueue as any).id,
+          product_id: p.id,
+          qty: qtyMap[p.id],
+          subtotal: qtyMap[p.id] * p.harga,
+        }));
+
+      if (items.length > 0) {
+        const { error: itemsErr } = await supabase.from('queue_products').insert(items);
+        if (itemsErr) throw itemsErr;
+      }
 
       // Navigate to C3 Status Antrian
       router.replace('/(customer)/queue/status' as any);
@@ -170,6 +230,12 @@ export default function AmbilAntrianScreen() {
                     activeOpacity={0.8}
                   >
                     <View style={styles.itemRow}>
+                      {t.foto_url ? (
+                        <Image
+                          source={{ uri: t.foto_url }}
+                          style={[styles.treatmentThumb, { borderColor: theme.cardBorder }]}
+                        />
+                      ) : null}
                       <View style={{ flex: 1, marginRight: 8 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <Text style={[styles.itemTitle, { color: theme.ink }]}>{t.nama}</Text>
@@ -264,15 +330,25 @@ export default function AmbilAntrianScreen() {
                     activeOpacity={0.8}
                   >
                     <View style={styles.barberLeftRow}>
-                      <Image
-                        source={require('@/assets/images/barber_portrait.png')}
-                        style={[styles.barberImage, { borderColor: theme.cardBorder }]}
-                      />
+                      {b.foto_url ? (
+                        <Image
+                          source={{ uri: b.foto_url }}
+                          style={[styles.barberImage, { borderColor: theme.cardBorder }]}
+                        />
+                      ) : (
+                        <Image
+                          source={require('@/assets/images/barber_portrait.png')}
+                          style={[styles.barberImage, { borderColor: theme.cardBorder }]}
+                        />
+                      )}
                       <View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <Text style={[styles.barberName, { color: theme.ink }]}>{b.nama}</Text>
-                          {/* Rating rata-rata dihitung di F2.2 (B5) */}
-                          <Text style={[styles.barberRating, { color: theme.amber }]}>★ —</Text>
+                          <Text style={[styles.barberRating, { color: theme.amber }]}>
+                            {barberRatings[b.id]
+                              ? `★ ${barberRatings[b.id].avg.toFixed(1)}`
+                              : '★ —'}
+                          </Text>
                         </View>
                         <View style={[styles.statusBadge, { backgroundColor: isRest ? theme.neutral : theme.success }]}>
                           <Text style={styles.statusBadgeText}>
@@ -292,6 +368,91 @@ export default function AmbilAntrianScreen() {
               })}
             </View>
 
+            {/* Instruksi Potongan (F2.7, PRD 13.2) */}
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: theme.ink }]}>
+                Instruksi Potongan <Text style={[styles.sectionSubtitle, { color: theme.inkMuted }]}>(opsional)</Text>
+              </Text>
+              <TextInput
+                style={[
+                  styles.instruksiInput,
+                  {
+                    backgroundColor: theme.surface,
+                    borderColor: instruksiFocused ? theme.secondary : theme.cardBorder,
+                    color: theme.ink,
+                  },
+                ]}
+                placeholder="Contoh: taper fade tipis samping, atas rapikan sedikit saja"
+                placeholderTextColor={theme.inkMuted}
+                value={instruksi}
+                onChangeText={setInstruksi}
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+                onFocus={() => setInstruksiFocused(true)}
+                onBlur={() => setInstruksiFocused(false)}
+              />
+            </View>
+
+            {/* Section 3: Add-on Grooming (F2.4, Stitch) */}
+            {products.length > 0 ? (
+              <View style={styles.section}>
+                <View style={styles.sectionHeaderRow}>
+                  <View style={styles.sectionBadgeTitle}>
+                    <View style={[styles.sectionNumBadge, { backgroundColor: theme.ink }]}>
+                      <Text style={[styles.sectionNumText, { color: theme.surface }]}>3</Text>
+                    </View>
+                    <Text style={[styles.sectionTitle, { color: theme.ink }]}>Add-on Grooming</Text>
+                  </View>
+                  <Text style={[styles.sectionSubtitle, { color: theme.inkMuted }]}>Opsional</Text>
+                </View>
+
+                <View style={styles.productGrid}>
+                  {products.map((p) => {
+                    const qty = qtyMap[p.id] || 0;
+                    return (
+                      <View key={p.id} style={[styles.productCard, brutalistCard(theme as any)]}>
+                        {p.foto_url ? (
+                          <Image
+                            source={{ uri: p.foto_url }}
+                            style={[styles.productImage, { borderColor: theme.cardBorder }]}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={[styles.productImagePh, { backgroundColor: theme.surfaceContainerHigh }]}>
+                            <MaterialCommunityIcons name="spray-bottle" size={32} color={theme.primary} />
+                          </View>
+                        )}
+                        <Text style={[styles.productName, { color: theme.ink }]} numberOfLines={1}>
+                          {p.nama}
+                        </Text>
+                        <Text style={[styles.productPrice, { color: theme.primary }]}>
+                          {formatRupiah(p.harga)}
+                        </Text>
+                        <View style={[styles.stepper, { backgroundColor: theme.surfaceContainerHigh }]}>
+                          <TouchableOpacity
+                            style={[styles.stepBtn, { backgroundColor: theme.surfaceContainerLowest }]}
+                            onPress={() => changeQty(p.id, -1)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.stepBtnText, { color: theme.ink }]}>-</Text>
+                          </TouchableOpacity>
+                          <Text style={[styles.qtyText, { color: theme.ink }]}>{qty}</Text>
+                          <TouchableOpacity
+                            style={[styles.stepBtn, { backgroundColor: theme.surfaceContainerLowest }]}
+                            onPress={() => changeQty(p.id, 1)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.stepBtnText, { color: theme.ink }]}>+</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
             {/* Sticky Summary & Booking Action (Stitch Screen 2) */}
             {selectedTreatment ? (
               <View style={[styles.summaryBox, brutalistCard(theme as any)]}>
@@ -300,7 +461,7 @@ export default function AmbilAntrianScreen() {
                     <Text style={[styles.summaryLabel, { color: theme.inkMuted }]}>Ringkasan Total</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
                       <Text style={[styles.totalVal, { color: theme.primary }]}>
-                        {formatRupiah(selectedTreatment.harga)}
+                        {formatRupiah(grandTotal)}
                       </Text>
                       <Text style={[styles.durationSummaryText, { color: theme.inkMuted }]}>
                         · {selectedTreatment.durasi_menit} mnt
@@ -363,7 +524,8 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 17, fontWeight: '800' },
   sectionSubtitle: { fontSize: 12, fontWeight: '600' },
   itemCard: { padding: 14, marginBottom: 10, borderRadius: 8 },
-  itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
+  treatmentThumb: { width: 52, height: 52, borderWidth: 2 },
   itemTitle: { fontSize: 16, fontWeight: '800' },
   itemDesc: { fontSize: 12, marginTop: 4, lineHeight: 16 },
   itemPrice: { fontSize: 16, fontWeight: '800' },
@@ -398,6 +560,25 @@ const styles = StyleSheet.create({
   barberSub: { fontSize: 12, marginTop: 2 },
   statusBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start', marginTop: 3 },
   statusBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
+  productGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  productCard: { width: '48%', padding: 10, borderRadius: 8 },
+  productImage: { width: '100%', height: 80, borderWidth: 1.5, marginBottom: 8 },
+  productImagePh: { width: '100%', height: 80, alignItems: 'center', justifyContent: 'center', marginBottom: 8, borderWidth: 1.5, borderColor: '#111111' },
+  productName: { fontSize: 13, fontWeight: '800' },
+  productPrice: { fontSize: 13, fontWeight: '800', marginTop: 2 },
+  stepper: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, padding: 4, borderRadius: 6 },
+  stepBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center', borderRadius: 4 },
+  stepBtnText: { fontSize: 16, fontWeight: '800' },
+  qtyText: { fontSize: 14, fontWeight: '800' },
+  instruksiInput: {
+    borderWidth: 1.5,
+    borderRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    minHeight: 76,
+    marginTop: 8,
+  },
   summaryBox: { padding: 16, borderRadius: 10, marginBottom: 16, marginTop: 8 },
   summaryTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   summaryLabel: { fontSize: 12, fontWeight: '600', marginBottom: 2 },

@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
   RefreshControl,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -95,6 +96,14 @@ export default function KasirQueueDashboard() {
           <Text style={[styles.subheading, { color: theme.inkMuted }]}>
             Tekan tombol "Panggil" untuk menugaskan barber dan memanggil antrian.
           </Text>
+          {/* Stitch: tombol + Walk-in — logika antrian manual dibuka di Fase 3 (F3.5) */}
+          <TouchableOpacity
+            style={[brutalistButton(theme as any, 'secondary'), { marginTop: 10, alignSelf: 'flex-start', opacity: 0.65 }]}
+            onPress={() => Alert.alert('🔒 Segera Hadir', 'Antrian walk-in manual dibuka di Fase 3.')}
+            activeOpacity={0.7}
+          >
+            <Text style={{ fontWeight: '800', fontSize: 13 }}>🔒 + WALK-IN</Text>
+          </TouchableOpacity>
         </View>
 
         {loading ? (

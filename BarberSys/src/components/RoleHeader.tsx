@@ -71,15 +71,22 @@ export const RoleHeader: React.FC<RoleHeaderProps> = ({ title }) => {
         {/* Animated Smooth Switch */}
         <ThemeSwitch size="sm" />
 
-        {/* User Avatar Image from Stitch */}
-        <Image
-          source={
-            profile?.role === 'barber'
-              ? require('@/assets/images/barber_portrait.png')
-              : require('@/assets/images/user_avatar.png')
-          }
-          style={[styles.avatar, { borderColor: theme.cardBorder }]}
-        />
+        {/* User Avatar: foto profil bila ada, fallback aset Stitch */}
+        {profile?.foto_url ? (
+          <Image
+            source={{ uri: profile.foto_url }}
+            style={[styles.avatar, { borderColor: theme.cardBorder }]}
+          />
+        ) : (
+          <Image
+            source={
+              profile?.role === 'barber'
+                ? require('@/assets/images/barber_portrait.png')
+                : require('@/assets/images/user_avatar.png')
+            }
+            style={[styles.avatar, { borderColor: theme.cardBorder }]}
+          />
+        )}
 
         {/* Logout Button */}
         <TouchableOpacity

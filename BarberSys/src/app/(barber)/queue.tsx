@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
   RefreshControl,
 } from 'react-native';
 import { supabase } from '@/lib/supabase';
@@ -22,12 +23,17 @@ interface BarberQueueItem extends QueueItem {
 
 export default function BarberQueueScreen() {
   const { theme } = useAppTheme();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
 
   const [queueList, setQueueList] = useState<BarberQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  // F2.2: rating rata-rata barber ini
+  const [myRating, setMyRating] = useState<{ avg: number; count: number } | null>(null);
+  // F2.10: ringkasan kerja hari ini
+  const [todayCount, setTodayCount] = useState(0);
+  const [workTimeLabel, setWorkTimeLabel] = useState('0j 0m');
 
   const fetchAssignedQueue = async () => {
     if (!user) return;
@@ -43,6 +49,44 @@ export default function BarberQueueScreen() {
         console.error('Error fetching barber queue:', error.message);
       } else {
         setQueueList((data as unknown as BarberQueueItem[]) || []);
+      }
+
+      // F2.2: rating rata-rata diri sendiri
+      const { data: rateData } = await supabase.rpc('barber_rating_stats');
+      const mine = ((rateData as any[]) || []).find((r) => r.barber_id === user.id);
+      setMyRating(mine ? { avg: Number(mine.avg_rating), count: Number(mine.rating_count) } : null);
+
+      // F2.10: ringkasan kerja hari ini (batas hari Asia/Jakarta, PRD 13.2)
+      const nowMs = Date.now();
+      const jakartaNow = new Date(nowMs + (7 * 60 + new Date().getTimezoneOffset()) * 60000);
+      jakartaNow.setHours(0, 0, 0, 0);
+      const dayStartIso = new Date(jakartaNow.getTime() - 7 * 60 * 60000).toISOString();
+
+      const { data: todayLunas } = await supabase
+        .from('queue')
+        .select('id')
+        .eq('barber_id', user.id)
+        .eq('status', 'lunas')
+        .gte('completed_at', dayStartIso);
+      setTodayCount((todayLunas as any[])?.length || 0);
+
+      const { data: todayCalled } = await supabase
+        .from('queue')
+        .select('called_at')
+        .eq('barber_id', user.id)
+        .not('called_at', 'is', null)
+        .gte('called_at', dayStartIso)
+        .order('called_at', { ascending: true })
+        .limit(1);
+
+      if (todayCalled && (todayCalled as any[]).length > 0) {
+        const diffMin = Math.max(
+          0,
+          Math.floor((nowMs - new Date((todayCalled as any[])[0].called_at).getTime()) / 60000)
+        );
+        setWorkTimeLabel(`${Math.floor(diffMin / 60)}j ${diffMin % 60}m`);
+      } else {
+        setWorkTimeLabel('0j 0m');
       }
     } catch (e) {
       console.error('Exception fetching barber queue:', e);
@@ -126,6 +170,33 @@ export default function BarberQueueScreen() {
           <Text style={[styles.subheading, { color: theme.inkMuted }]}>
             Kelola antrian pelanggan yang ditugaskan ke Anda.
           </Text>
+          <Text style={[styles.ratingLine, { color: theme.amber }]}>
+            {myRating ? `⭐ ${myRating.avg.toFixed(1)} · ${myRating.count} ulasan` : '⭐ — · Belum ada ulasan'}
+          </Text>
+        </View>
+
+        {/* Mode operasional (Stitch) — toggle Istirahat manual dibuka di Fase 3 (F3.1) */}
+        <TouchableOpacity
+          style={[styles.modeRow, brutalistCard(theme as any)]}
+          onPress={() => Alert.alert('🔒 Segera Hadir', 'Toggle Istirahat manual dibuka di Fase 3.')}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.modeLabel, { color: theme.inkMuted }]}>Mode Operasional</Text>
+          <Text style={[styles.modeVal, { color: theme.ink }]}>
+            {profile?.status_kerja === 'istirahat' ? '🔒 ISTIRAHAT' : '🔒 TERSEDIA / SIAP'}
+          </Text>
+        </TouchableOpacity>
+
+        {/* F2.10: header statistik harian */}
+        <View style={styles.statRow}>
+          <View style={[styles.statCard, brutalistCard(theme as any)]}>
+            <Text style={[styles.statLabel, { color: theme.inkMuted }]}>Hari Ini</Text>
+            <Text style={[styles.statVal, { color: theme.ink }]}>{todayCount} Pelanggan</Text>
+          </View>
+          <View style={[styles.statCard, brutalistCard(theme as any)]}>
+            <Text style={[styles.statLabel, { color: theme.inkMuted }]}>Waktu Kerja</Text>
+            <Text style={[styles.statVal, { color: theme.ink }]}>{workTimeLabel}</Text>
+          </View>
         </View>
 
         {loading ? (
@@ -177,10 +248,21 @@ export default function BarberQueueScreen() {
                     </Text>
                   </View>
 
-                  {/* Dynamic Action Buttons */}
+                  {item.instruksi_potongan ? (
+                    <View style={[styles.instruksiBox, { backgroundColor: theme.surfaceContainerLow, borderColor: theme.cardBorder, borderLeftColor: theme.amber }]}>
+                      <Text style={[styles.instruksiLabel, { color: theme.inkMuted }]}>
+                        Instruksi Potongan:
+                      </Text>
+                      <Text style={[styles.instruksiText, { color: theme.ink }]}>
+                        {item.instruksi_potongan}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {/* Dynamic Action Buttons (Stitch: MULAI = cobalt) */}
                   {isDipanggil ? (
                     <TouchableOpacity
-                      style={[brutalistButton(theme as any, 'primary'), styles.actionBtn, { backgroundColor: theme.amber }]}
+                      style={[brutalistButton(theme as any, 'primary'), styles.actionBtn, { backgroundColor: theme.secondary }]}
                       onPress={() => handleMulaiLayanan(item.id)}
                       disabled={isUpdating}
                     >
@@ -225,6 +307,14 @@ const styles = StyleSheet.create({
   introBox: { marginBottom: 16 },
   heading: { fontSize: 20, fontWeight: '800' },
   subheading: { fontSize: 13, marginTop: 2, fontWeight: '500' },
+  ratingLine: { fontSize: 14, fontWeight: '800', marginTop: 4 },
+  modeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, marginBottom: 12, opacity: 0.85 },
+  modeLabel: { fontSize: 12, fontWeight: '600' },
+  modeVal: { fontSize: 13, fontWeight: '800' },
+  statRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  statCard: { flex: 1, padding: 12 },
+  statLabel: { fontSize: 12, fontWeight: '600' },
+  statVal: { fontSize: 16, fontWeight: '800', marginTop: 2 },
   centerBox: { padding: 40, alignItems: 'center' },
   loadingText: { marginTop: 12, fontSize: 14, fontWeight: '600' },
   emptyCard: { padding: 28, alignItems: 'center' },
@@ -241,6 +331,9 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   infoLabel: { fontSize: 13 },
   infoVal: { fontSize: 13, fontWeight: '700' },
+  instruksiBox: { borderWidth: 1.5, borderLeftWidth: 4, borderRadius: 6, padding: 10, marginTop: 8 },
+  instruksiLabel: { fontSize: 12, fontWeight: '600', marginBottom: 2 },
+  instruksiText: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
   actionBtn: { marginTop: 14, paddingVertical: 12 },
   actionBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
 });

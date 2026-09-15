@@ -2,13 +2,18 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as Sharing from 'expo-sharing';
+import { cacheDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
 import { supabase } from '@/lib/supabase';
 import { QueueItem, Treatment, Profile, QueueStatus } from '@/types/database';
 import { useAuth } from '@/context/AuthContext';
@@ -30,6 +35,12 @@ export default function StatusAntrianScreen() {
   const [currentServingNo, setCurrentServingNo] = useState<number | null>(null);
   const [totalWaitingCount, setTotalWaitingCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  // F2.1: rating untuk tiket lunas yang belum dirating
+  const [unratedQueue, setUnratedQueue] = useState<ExtendedQueueItem | null>(null);
+  const [rating, setRating] = useState(0);
+  const [komentar, setKomentar] = useState('');
+  const [submittingRating, setSubmittingRating] = useState(false);
+  const [ratingMsg, setRatingMsg] = useState<string | null>(null);
 
   const fetchActiveQueue = async () => {
     if (!user) return;
@@ -72,6 +83,30 @@ export default function StatusAntrianScreen() {
         .in('status', ['menunggu', 'dipanggil', 'dilayani']);
 
       setTotalWaitingCount(count || 0);
+
+      // 4. F2.1: tiket lunas terbaru yang belum dirating — hanya jika TIDAK ada
+      // antrian aktif dan lunasnya max 24 jam terakhir (abaikan data testing lama)
+      const hasActive = !!(data && data.length > 0);
+      if (!hasActive) {
+        const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+        const { data: unratedData } = await supabase
+          .from('queue')
+          .select('*, treatments(*), barber:profiles!queue_barber_id_fkey(*)')
+          .eq('user_id', user.id)
+          .eq('status', 'lunas')
+          .is('rating', null)
+          .gte('completed_at', dayAgo)
+          .order('completed_at', { ascending: false })
+          .limit(1);
+
+        if (unratedData && unratedData.length > 0) {
+          setUnratedQueue(unratedData[0] as unknown as ExtendedQueueItem);
+        } else {
+          setUnratedQueue(null);
+        }
+      } else {
+        setUnratedQueue(null);
+      }
     } catch (e) {
       console.error('Exception fetching status:', e);
     } finally {
@@ -112,6 +147,58 @@ export default function StatusAntrianScreen() {
         return { bg: theme.success, label: 'SELESAI (MENUNGGU BAYAR)' };
       default:
         return { bg: theme.neutral, label: status.toUpperCase() };
+    }
+  };
+
+  // F2.11: bagikan tiket via share sheet perangkat
+  const [sharing, setSharing] = useState(false);
+  const handleShareTicket = async () => {
+    if (!activeQueue || sharing) return;
+    setSharing(true);
+    try {
+      const no = activeQueue.nomor_antrian < 10 ? `A-0${activeQueue.nomor_antrian}` : `A-${activeQueue.nomor_antrian}`;
+      const text =
+        `Tiket Antrian BarberSys\n` +
+        `Nomor: ${no}\n` +
+        `Layanan: ${activeQueue.treatments?.nama || '-'}\n` +
+        `Barber: ${activeQueue.barber?.nama || 'Siapa saja yang tersedia'}\n` +
+        `Status: ${activeQueue.status}\n` +
+        `Estimasi: ±${activeQueue.treatments?.durasi_menit || 30} menit lagi`;
+      const fileUri = `${cacheDirectory}tiket-${activeQueue.id}.txt`;
+      await writeAsStringAsync(fileUri, text, { encoding: EncodingType.UTF8 });
+      if (!(await Sharing.isAvailableAsync())) {
+        setRatingMsg('Berbagi tidak tersedia di perangkat ini.');
+        return;
+      }
+      await Sharing.shareAsync(fileUri);
+    } catch (e: any) {
+      console.error('Share ticket failed:', e);
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  // F2.1: kirim rating + komentar opsional
+  const handleSubmitRating = async () => {
+    if (!unratedQueue || rating < 1) {
+      setRatingMsg('Pilih minimal 1 bintang.');
+      return;
+    }
+    setSubmittingRating(true);
+    setRatingMsg(null);
+    try {
+      const { error } = await supabase
+        .from('queue')
+        .update({ rating, komentar: komentar.trim() || null })
+        .eq('id', unratedQueue.id);
+      if (error) throw error;
+      setUnratedQueue(null);
+      setRating(0);
+      setKomentar('');
+    } catch (e: any) {
+      setRatingMsg(e.message || 'Gagal mengirim rating.');
+    } finally {
+      setSubmittingRating(false);
     }
   };
 
@@ -231,10 +318,116 @@ export default function StatusAntrianScreen() {
                   </Text>
                 </View>
               </View>
+
+              {/* F2.11: Kirim Tiket (Stitch: ghost + ikon share) + Batalkan terkunci (F3.3) */}
+              <View style={styles.ticketActions}>
+                <TouchableOpacity
+                  style={styles.shareRow}
+                  onPress={handleShareTicket}
+                  disabled={sharing}
+                  activeOpacity={0.7}
+                >
+                  <MaterialIcons
+                    name="share"
+                    size={18}
+                    color={sharing ? theme.neutral : theme.inkMuted}
+                  />
+                  <Text style={[styles.shareText, { color: sharing ? theme.neutral : theme.inkMuted }]}>
+                    {sharing ? 'Menyiapkan...' : 'Kirim Tiket'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() =>
+                    Alert.alert(
+                      '🔒 Segera Hadir',
+                      'Pembatalan antrian dibuka di Fase 3.'
+                    )
+                  }
+                >
+                  <Text style={[styles.cancelLocked, { color: theme.danger }]}>
+                    Batalkan Antrian
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         )}
       </ScrollView>
+
+      {/* F2.1: Bottom sheet rating (modal neo-brutalist) */}
+      <Modal transparent animationType="slide" visible={!!unratedQueue}>
+        <View style={styles.ratingOverlay}>
+          <View style={[styles.ratingCard, brutalistCard(theme as any)]}>
+            <Text style={[styles.ratingTitle, { color: theme.ink }]}>
+              Bagaimana pelayanan {unratedQueue?.barber?.nama || 'barber'}?
+            </Text>
+            <Text style={[styles.ratingSub, { color: theme.inkMuted }]}>
+              {unratedQueue?.treatments?.nama || 'Layanan'} — beri bintang 1 sampai 5
+            </Text>
+
+            <View style={styles.starsRow}>
+              {[1, 2, 3, 4, 5].map((s) => (
+                <TouchableOpacity key={s} onPress={() => setRating(s)} activeOpacity={0.7}>
+                  <Text
+                    style={[
+                      styles.star,
+                      { color: s <= rating ? theme.amber : theme.neutral },
+                    ]}
+                  >
+                    ★
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TextInput
+              style={[
+                styles.komentarInput,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.cardBorder,
+                  color: theme.ink,
+                },
+              ]}
+              placeholder="Komentar (opsional)"
+              placeholderTextColor={theme.inkMuted}
+              value={komentar}
+              onChangeText={setKomentar}
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+            />
+
+            {ratingMsg ? (
+              <Text style={[styles.ratingMsg, { color: theme.danger }]}>{ratingMsg}</Text>
+            ) : null}
+
+            <TouchableOpacity
+              style={[
+                brutalistButton(theme as any, 'primary'),
+                { marginTop: 12, opacity: submittingRating ? 0.6 : 1 },
+              ]}
+              onPress={handleSubmitRating}
+              disabled={submittingRating}
+            >
+              {submittingRating ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.ratingBtnText}>KIRIM RATING</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[brutalistButton(theme as any, 'ghost'), { marginTop: 10 }]}
+              onPress={() => setUnratedQueue(null)}
+              disabled={submittingRating}
+            >
+              <Text style={[styles.skipText, { color: theme.ink }]}>Nanti Saja</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -286,7 +479,21 @@ const styles = StyleSheet.create({
   },
   servingInfoText: { fontSize: 13, fontWeight: '600' },
   infoSection: { width: '100%', marginTop: 8, gap: 6 },
+  ticketActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, minHeight: 44 },
+  shareRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  shareText: { fontSize: 13, fontWeight: '600' },
+  cancelLocked: { fontSize: 13, fontWeight: '700', opacity: 0.75 },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  ratingOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  ratingCard: { padding: 20, borderRadius: 0 },
+  ratingTitle: { fontSize: 18, fontWeight: '800' },
+  ratingSub: { fontSize: 13, marginTop: 4, fontWeight: '500' },
+  starsRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginVertical: 16 },
+  star: { fontSize: 40 },
+  komentarInput: { borderWidth: 1.5, borderRadius: 4, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, minHeight: 72 },
+  ratingMsg: { fontSize: 12, fontWeight: '600', marginTop: 8 },
+  ratingBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
+  skipText: { fontWeight: '700', fontSize: 13 },
   infoLabel: { fontSize: 13, fontWeight: '500' },
   infoVal: { fontSize: 13, fontWeight: '700' },
   btnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },

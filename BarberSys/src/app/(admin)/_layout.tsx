@@ -27,6 +27,16 @@ export default function AdminLayout() {
         },
       }}
     >
+      {/* Terkunci sampai Fase 4 (F4.5) — struktur tab ikut Stitch */}
+      <Tabs.Screen
+        name="ringkasan"
+        options={{
+          title: 'Ringkasan',
+          tabBarIcon: ({ color }) => (
+            <MaterialIcons name="dashboard" size={22} color={color} />
+          ),
+        }}
+      />
       <Tabs.Screen
         name="treatments"
         options={{
@@ -37,11 +47,30 @@ export default function AdminLayout() {
         }}
       />
       <Tabs.Screen
+        name="products"
+        options={{
+          title: 'Produk',
+          tabBarIcon: ({ color }) => (
+            <MaterialIcons name="inventory-2" size={22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="staff"
         options={{
           title: 'Pegawai',
           tabBarIcon: ({ color }) => (
             <MaterialIcons name="people-outline" size={22} color={color} />
+          ),
+        }}
+      />
+      {/* Terkunci sampai Fase 4 (F4.4) */}
+      <Tabs.Screen
+        name="laporan"
+        options={{
+          title: 'Laporan',
+          tabBarIcon: ({ color }) => (
+            <MaterialIcons name="analytics" size={22} color={color} />
           ),
         }}
       />

@@ -26,6 +26,9 @@ export default function CustomerHistoryScreen() {
   const [historyList, setHistoryList] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // F2.5: add-on produk per queue_id + total gabungan
+  const [notaItems, setNotaItems] = useState<Record<string, { nama: string; qty: number; subtotal: number }[]>>({});
+  const [notaTotals, setNotaTotals] = useState<Record<string, number>>({});
 
   const fetchHistory = async () => {
     if (!user) return;
@@ -40,7 +43,32 @@ export default function CustomerHistoryScreen() {
       if (error) {
         console.error('Error fetching history:', error.message);
       } else {
-        setHistoryList((data as unknown as HistoryItem[]) || []);
+        const list = (data as unknown as HistoryItem[]) || [];
+        setHistoryList(list);
+
+        if (list.length > 0) {
+          const { data: qpData } = await supabase
+            .from('queue_products')
+            .select('queue_id, qty, subtotal, products(nama)')
+            .in('queue_id', list.map((h) => h.id));
+
+          const itemsMap: Record<string, { nama: string; qty: number; subtotal: number }[]> = {};
+          const totalsMap: Record<string, number> = {};
+          ((qpData as any[]) || []).forEach((row) => {
+            const arr = itemsMap[row.queue_id] || [];
+            arr.push({ nama: row.products?.nama || 'Produk', qty: row.qty, subtotal: row.subtotal });
+            itemsMap[row.queue_id] = arr;
+          });
+          list.forEach((h) => {
+            const prodSum = (itemsMap[h.id] || []).reduce((s, it) => s + it.subtotal, 0);
+            totalsMap[h.id] = (h.treatments?.harga || 0) + prodSum;
+          });
+          setNotaItems(itemsMap);
+          setNotaTotals(totalsMap);
+        } else {
+          setNotaItems({});
+          setNotaTotals({});
+        }
       }
     } catch (e) {
       console.error('Exception fetching history:', e);
@@ -125,10 +153,21 @@ export default function CustomerHistoryScreen() {
                   </Text>
                 </View>
 
+                {(notaItems[item.id] || []).map((it, idx) => (
+                  <View key={idx} style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.inkMuted }]}>
+                      {it.nama} × {it.qty}
+                    </Text>
+                    <Text style={[styles.infoVal, { color: theme.ink }]}>
+                      {formatRupiah(it.subtotal)}
+                    </Text>
+                  </View>
+                ))}
+
                 <View style={[styles.totalRow, { borderTopColor: theme.cardBorder }]}>
                   <Text style={[styles.totalLabel, { color: theme.ink }]}>Total Pembayaran</Text>
                   <Text style={[styles.totalVal, { color: theme.primary }]}>
-                    {formatRupiah(item.treatments?.harga || 0)}
+                    {formatRupiah(notaTotals[item.id] ?? item.treatments?.harga ?? 0)}
                   </Text>
                 </View>
               </View>

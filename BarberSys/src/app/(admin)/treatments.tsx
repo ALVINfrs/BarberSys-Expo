@@ -9,11 +9,13 @@ import {
   Modal,
   TextInput,
   Switch,
+  Image,
 } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { Treatment } from '@/types/database';
 import { RoleHeader } from '@/components/RoleHeader';
 import { brutalistCard, brutalistButton, brutalistInput } from '@/constants/theme';
+import { pickAndUploadPhoto, isPickerCancelled } from '@/lib/upload-photo';
 import { useAppTheme } from '@/context/ThemeContext';
 
 export default function AdminTreatmentsScreen() {
@@ -29,7 +31,9 @@ export default function AdminTreatmentsScreen() {
   const [harga, setHarga] = useState('');
   const [durasi, setDurasi] = useState('');
   const [deskripsi, setDeskripsi] = useState('');
+  const [fotoUrl, setFotoUrl] = useState<string | null>(null);
   const [aktif, setAktif] = useState(true);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -63,6 +67,7 @@ export default function AdminTreatmentsScreen() {
     setHarga('');
     setDurasi('');
     setDeskripsi('');
+    setFotoUrl(null);
     setAktif(true);
     setErrorMsg(null);
     setModalVisible(true);
@@ -74,9 +79,25 @@ export default function AdminTreatmentsScreen() {
     setHarga(t.harga.toString());
     setDurasi(t.durasi_menit.toString());
     setDeskripsi(t.deskripsi || '');
+    setFotoUrl(t.foto_url);
     setAktif(t.aktif);
     setErrorMsg(null);
     setModalVisible(true);
+  };
+
+  // F2.9: unggah foto treatment ke bucket `treatments`
+  const handlePickPhoto = async () => {
+    setUploadingPhoto(true);
+    try {
+      const url = await pickAndUploadPhoto('treatments', 'treatment');
+      setFotoUrl(url);
+    } catch (e) {
+      if (!isPickerCancelled(e)) {
+        setErrorMsg(e instanceof Error ? e.message : 'Gagal mengunggah foto.');
+      }
+    } finally {
+      setUploadingPhoto(false);
+    }
   };
 
   const handleSaveTreatment = async () => {
@@ -103,29 +124,23 @@ export default function AdminTreatmentsScreen() {
     setSubmitting(true);
 
     try {
+      const payload = {
+        nama: nama.trim(),
+        harga: hargaNum,
+        durasi_menit: durasiNum,
+        deskripsi: deskripsi.trim() || null,
+        foto_url: fotoUrl,
+        aktif,
+      };
+
       if (editingId) {
         // UPDATE
-        const { error } = await supabase
-          .from('treatments')
-          .update({
-            nama: nama.trim(),
-            harga: hargaNum,
-            durasi_menit: durasiNum,
-            deskripsi: deskripsi.trim() || null,
-            aktif,
-          })
-          .eq('id', editingId);
+        const { error } = await supabase.from('treatments').update(payload).eq('id', editingId);
 
         if (error) throw error;
       } else {
         // INSERT
-        const { error } = await supabase.from('treatments').insert({
-          nama: nama.trim(),
-          harga: hargaNum,
-          durasi_menit: durasiNum,
-          deskripsi: deskripsi.trim() || null,
-          aktif,
-        });
+        const { error } = await supabase.from('treatments').insert(payload);
 
         if (error) throw error;
       }
@@ -176,15 +191,25 @@ export default function AdminTreatmentsScreen() {
                 onPress={() => openEditModal(t)}
                 activeOpacity={0.8}
               >
-                <View style={styles.cardHeader}>
-                  <Text style={[styles.treatmentTitle, { color: theme.ink }]}>{t.nama}</Text>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      { backgroundColor: t.aktif ? theme.success : theme.neutral },
-                    ]}
-                  >
-                    <Text style={styles.statusBadgeText}>{t.aktif ? 'AKTIF' : 'NONAKTIF'}</Text>
+                <View style={styles.cardRow}>
+                  {t.foto_url ? (
+                    <Image
+                      source={{ uri: t.foto_url }}
+                      style={[styles.thumb, { borderColor: theme.cardBorder }]}
+                    />
+                  ) : null}
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.cardHeader}>
+                      <Text style={[styles.treatmentTitle, { color: theme.ink }]}>{t.nama}</Text>
+                      <View
+                        style={[
+                          styles.statusBadge,
+                          { backgroundColor: t.aktif ? theme.success : theme.neutral },
+                        ]}
+                      >
+                        <Text style={styles.statusBadgeText}>{t.aktif ? 'AKTIF' : 'NONAKTIF'}</Text>
+                      </View>
+                    </View>
                   </View>
                 </View>
 
@@ -214,6 +239,21 @@ export default function AdminTreatmentsScreen() {
               <Text style={[styles.modalTitle, { color: theme.ink }]}>
                 {editingId ? 'Edit Treatment' : 'Tambah Treatment Baru'}
               </Text>
+
+              <TouchableOpacity
+                style={[styles.photoBox, { borderColor: theme.cardBorder, backgroundColor: theme.surfaceContainerLow }]}
+                onPress={handlePickPhoto}
+                disabled={uploadingPhoto}
+                activeOpacity={0.8}
+              >
+                {fotoUrl ? (
+                  <Image source={{ uri: fotoUrl }} style={styles.photoPreview} resizeMode="cover" />
+                ) : (
+                  <Text style={[styles.photoHint, { color: theme.inkMuted }]}>
+                    {uploadingPhoto ? 'Mengunggah...' : '📷 Tap untuk tambah foto treatment'}
+                  </Text>
+                )}
+              </TouchableOpacity>
 
               <View style={styles.fieldGroup}>
                 <Text style={[styles.label, { color: theme.ink }]}>Nama Treatment</Text>
@@ -312,6 +352,11 @@ const styles = StyleSheet.create({
   loadingText: { marginTop: 12, fontSize: 14, fontWeight: '600' },
   list: { gap: 12 },
   card: { padding: 16 },
+  cardRow: { flexDirection: 'row', gap: 12, alignItems: 'center', marginBottom: 6 },
+  thumb: { width: 56, height: 56, borderWidth: 2 },
+  photoBox: { height: 120, borderWidth: 2, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 12, overflow: 'hidden' },
+  photoPreview: { width: '100%', height: '100%' },
+  photoHint: { fontSize: 13, fontWeight: '600' },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   treatmentTitle: { fontSize: 17, fontWeight: '800', flex: 1 },
   statusBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },

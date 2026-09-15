@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
@@ -110,11 +111,21 @@ export default function CustomerHomeScreen() {
                 activeOpacity={0.85}
                 onPress={() => handleSelectTreatment(t)}
               >
-                <View style={styles.cardHeader}>
-                  <Text style={[styles.treatmentTitle, { color: theme.ink }]}>{t.nama}</Text>
-                  <Text style={[styles.treatmentPrice, { color: theme.primary }]}>
-                    {formatRupiah(t.harga)}
-                  </Text>
+                <View style={styles.cardTopRow}>
+                  {t.foto_url ? (
+                    <Image
+                      source={{ uri: t.foto_url }}
+                      style={[styles.thumb, { borderColor: theme.cardBorder }]}
+                    />
+                  ) : null}
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.cardHeader}>
+                      <Text style={[styles.treatmentTitle, { color: theme.ink }]}>{t.nama}</Text>
+                      <Text style={[styles.treatmentPrice, { color: theme.primary }]}>
+                        {formatRupiah(t.harga)}
+                      </Text>
+                    </View>
+                  </View>
                 </View>
 
                 {t.deskripsi ? (
@@ -156,6 +167,8 @@ const styles = StyleSheet.create({
   emptySub: { fontSize: 13, marginTop: 4, textAlign: 'center' },
   treatmentList: { gap: 14 },
   card: { padding: 16 },
+  cardTopRow: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  thumb: { width: 56, height: 56, borderWidth: 2 },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   treatmentTitle: { fontSize: 18, fontWeight: '800', flex: 1, marginRight: 8 },
   treatmentPrice: { fontSize: 18, fontWeight: '800' },

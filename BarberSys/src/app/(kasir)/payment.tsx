@@ -6,11 +6,12 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
   RefreshControl,
   Modal,
 } from 'react-native';
 import { supabase } from '@/lib/supabase';
-import { QueueItem, Treatment, Profile } from '@/types/database';
+import { QueueItem, Treatment, Profile, Product } from '@/types/database';
 import { useAuth } from '@/context/AuthContext';
 import { RoleHeader } from '@/components/RoleHeader';
 import { brutalistCard, brutalistButton, Typography } from '@/constants/theme';
@@ -22,6 +23,12 @@ interface SelesaiQueueItem extends QueueItem {
   barber: Profile | null;
 }
 
+interface NotaItem {
+  nama: string;
+  qty: number;
+  subtotal: number;
+}
+
 export default function KasirPaymentScreen() {
   const { theme } = useAppTheme();
   const { user } = useAuth();
@@ -29,6 +36,15 @@ export default function KasirPaymentScreen() {
   const [queueList, setQueueList] = useState<SelesaiQueueItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<SelesaiQueueItem | null>(null);
   const [metodeBayar, setMetodeBayar] = useState<'tunai' | 'qris'>('tunai');
+  // F2.5: item produk per queue_id + total gabungan
+  const [notaItems, setNotaItems] = useState<Record<string, NotaItem[]>>({});
+  const [notaTotals, setNotaTotals] = useState<Record<string, number>>({});
+  // F2.6: jual produk walk-in (produk saja)
+  const [walkinVisible, setWalkinVisible] = useState(false);
+  const [walkinProducts, setWalkinProducts] = useState<Product[]>([]);
+  const [walkinQty, setWalkinQty] = useState<Record<string, number>>({});
+  const [walkinSubmitting, setWalkinSubmitting] = useState(false);
+  const [walkinError, setWalkinError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,7 +62,38 @@ export default function KasirPaymentScreen() {
       if (error) {
         console.error('Error fetching payment queue:', error.message);
       } else {
-        setQueueList((data as unknown as SelesaiQueueItem[]) || []);
+        const list = (data as unknown as SelesaiQueueItem[]) || [];
+        setQueueList(list);
+
+        // F2.5: ambil add-on produk untuk nota gabungan
+        if (list.length > 0) {
+          const ids = list.map((q) => q.id);
+          const { data: qpData } = await supabase
+            .from('queue_products')
+            .select('queue_id, qty, subtotal, products(nama)')
+            .in('queue_id', ids);
+
+          const itemsMap: Record<string, NotaItem[]> = {};
+          const totalsMap: Record<string, number> = {};
+          (qpData as any[] || []).forEach((row) => {
+            const arr = itemsMap[row.queue_id] || [];
+            arr.push({
+              nama: row.products?.nama || 'Produk',
+              qty: row.qty,
+              subtotal: row.subtotal,
+            });
+            itemsMap[row.queue_id] = arr;
+          });
+          list.forEach((q) => {
+            const prodSum = (itemsMap[q.id] || []).reduce((s, it) => s + it.subtotal, 0);
+            totalsMap[q.id] = (q.treatments?.harga || 0) + prodSum;
+          });
+          setNotaItems(itemsMap);
+          setNotaTotals(totalsMap);
+        } else {
+          setNotaItems({});
+          setNotaTotals({});
+        }
       }
     } catch (e) {
       console.error('Exception fetching payment queue:', e);
@@ -56,8 +103,68 @@ export default function KasirPaymentScreen() {
     }
   };
 
+  // F2.6: katalog produk untuk penjualan walk-in
+  const fetchWalkinProducts = async () => {
+    const { data } = await supabase
+      .from('products')
+      .select('*')
+      .eq('aktif', true)
+      .order('nama', { ascending: true });
+    setWalkinProducts((data as Product[]) || []);
+  };
+
+  const changeWalkinQty = (id: string, delta: number) => {
+    setWalkinQty((prev) => ({ ...prev, [id]: Math.max(0, (prev[id] || 0) + delta) }));
+  };
+
+  // F2.6: buat transaksi produk-saja (tanpa treatment/antrian customer)
+  const handleWalkinSale = async () => {
+    if (!user) return;
+    setWalkinError(null);
+
+    const items = walkinProducts.filter((p) => (walkinQty[p.id] || 0) > 0);
+    if (items.length === 0) {
+      setWalkinError('Pilih minimal 1 produk.');
+      return;
+    }
+
+    setWalkinSubmitting(true);
+    try {
+      const { data: newQueue, error: qErr } = await supabase
+        .from('queue')
+        .insert({
+          user_id: null,
+          treatment_id: null,
+          barber_id: null,
+          kasir_id: user.id,
+          status: 'selesai',
+        })
+        .select()
+        .single();
+      if (qErr) throw qErr;
+
+      const rows = items.map((p) => ({
+        queue_id: (newQueue as any).id,
+        product_id: p.id,
+        qty: walkinQty[p.id],
+        subtotal: walkinQty[p.id] * p.harga,
+      }));
+      const { error: qpErr } = await supabase.from('queue_products').insert(rows);
+      if (qpErr) throw qpErr;
+
+      setWalkinVisible(false);
+      setWalkinQty({});
+      fetchSelesaiQueue();
+    } catch (e: any) {
+      setWalkinError(e.message || 'Gagal menyimpan penjualan walk-in.');
+    } finally {
+      setWalkinSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     fetchSelesaiQueue();
+    fetchWalkinProducts();
 
     // Subscribe to realtime queue changes
     const channel = supabase
@@ -131,6 +238,16 @@ export default function KasirPaymentScreen() {
           <Text style={[styles.subheading, { color: theme.inkMuted }]}>
             Pilih transaksi pelanggan yang telah selesai dikerjakan untuk melunasi pembayaran.
           </Text>
+          <TouchableOpacity
+            style={[brutalistButton(theme as any, 'secondary'), { marginTop: 10, alignSelf: 'flex-start' }]}
+            onPress={() => {
+              setWalkinQty({});
+              setWalkinError(null);
+              setWalkinVisible(true);
+            }}
+          >
+            <Text style={{ fontWeight: '800', fontSize: 13 }}>+ JUAL PRODUK WALK-IN</Text>
+          </TouchableOpacity>
         </View>
 
         {loading ? (
@@ -180,7 +297,7 @@ export default function KasirPaymentScreen() {
                 <View style={[styles.totalRow, { borderTopColor: theme.cardBorder }]}>
                   <Text style={[styles.totalLabel, { color: theme.ink }]}>Total Tagihan:</Text>
                   <Text style={[styles.totalVal, { color: theme.primary }]}>
-                    {formatRupiah(item.treatments?.harga || 0)}
+                    {formatRupiah(notaTotals[item.id] ?? item.treatments?.harga ?? 0)}
                   </Text>
                 </View>
 
@@ -196,6 +313,81 @@ export default function KasirPaymentScreen() {
         )}
       </ScrollView>
 
+      {/* F2.6: Modal jual produk walk-in */}
+      {walkinVisible ? (
+        <Modal transparent animationType="slide" visible={walkinVisible}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalCard, brutalistCard(theme as any)]}>
+              <Text style={[styles.modalTitle, { color: theme.ink }]}>Jual Produk Walk-in</Text>
+              <Text style={[styles.modalLabel, { color: theme.inkMuted }]}>
+                Produk saja, tanpa treatment/antrian.
+              </Text>
+
+              {walkinProducts.length === 0 ? (
+                <Text style={[styles.errorText, { color: theme.inkMuted }]}>
+                  Belum ada produk aktif. Tambahkan dulu di menu Admin → Produk.
+                </Text>
+              ) : (
+                walkinProducts.map((p) => {
+                  const qty = walkinQty[p.id] || 0;
+                  return (
+                    <View key={p.id} style={styles.walkinRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.walkinName, { color: theme.ink }]}>{p.nama}</Text>
+                        <Text style={[styles.walkinPrice, { color: theme.primary }]}>
+                          {formatRupiah(p.harga)}
+                        </Text>
+                      </View>
+                      <View style={[styles.stepper, { backgroundColor: theme.surfaceContainerHigh }]}>
+                        <TouchableOpacity
+                          style={[styles.stepBtn, { backgroundColor: theme.surfaceContainerLowest }]}
+                          onPress={() => changeWalkinQty(p.id, -1)}
+                        >
+                          <Text style={[styles.stepBtnText, { color: theme.ink }]}>-</Text>
+                        </TouchableOpacity>
+                        <Text style={[styles.qtyText, { color: theme.ink }]}>{qty}</Text>
+                        <TouchableOpacity
+                          style={[styles.stepBtn, { backgroundColor: theme.surfaceContainerLowest }]}
+                          onPress={() => changeWalkinQty(p.id, 1)}
+                        >
+                          <Text style={[styles.stepBtnText, { color: theme.ink }]}>+</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+
+              {walkinError ? (
+                <Text style={[styles.errorText, { color: theme.danger }]}>{walkinError}</Text>
+              ) : null}
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={[brutalistButton(theme as any, 'ghost'), { flex: 1 }]}
+                  onPress={() => setWalkinVisible(false)}
+                  disabled={walkinSubmitting}
+                >
+                  <Text style={{ fontWeight: '700' }}>BATAL</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[brutalistButton(theme as any, 'primary'), { flex: 1, backgroundColor: theme.secondary, opacity: walkinSubmitting ? 0.6 : 1 }]}
+                  onPress={handleWalkinSale}
+                  disabled={walkinSubmitting}
+                >
+                  {walkinSubmitting ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.payBtnText}>SIMPAN</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
+
       {/* Payment Confirmation Modal */}
       {selectedItem ? (
         <Modal transparent animationType="fade" visible={!!selectedItem}>
@@ -210,17 +402,34 @@ export default function KasirPaymentScreen() {
                 <Text style={[styles.modalLabel, { color: theme.inkMuted }]}>
                   Pelanggan: <Text style={{ color: theme.ink, fontWeight: '800' }}>{selectedItem.customer?.nama || 'Pelanggan'}</Text>
                 </Text>
-                <Text style={[styles.modalLabel, { color: theme.inkMuted }]}>
-                  Layanan: <Text style={{ color: theme.ink, fontWeight: '800' }}>{selectedItem.treatments?.nama}</Text>
-                </Text>
+                {selectedItem.treatments ? (
+                  <View style={styles.notaLine}>
+                    <Text style={[styles.modalLabel, { color: theme.inkMuted }]}>
+                      {selectedItem.treatments.nama}
+                    </Text>
+                    <Text style={[styles.notaLineVal, { color: theme.ink }]}>
+                      {formatRupiah(selectedItem.treatments.harga)}
+                    </Text>
+                  </View>
+                ) : null}
+                {(notaItems[selectedItem.id] || []).map((it, idx) => (
+                  <View key={idx} style={styles.notaLine}>
+                    <Text style={[styles.modalLabel, { color: theme.inkMuted }]}>
+                      {it.nama} × {it.qty}
+                    </Text>
+                    <Text style={[styles.notaLineVal, { color: theme.ink }]}>
+                      {formatRupiah(it.subtotal)}
+                    </Text>
+                  </View>
+                ))}
                 <Text style={[styles.modalPrice, { color: theme.primary }]}>
-                  Total: {formatRupiah(selectedItem.treatments?.harga || 0)}
+                  Total: {formatRupiah(notaTotals[selectedItem.id] ?? selectedItem.treatments?.harga ?? 0)}
                 </Text>
               </View>
 
               <Text style={[styles.metodeTitle, { color: theme.ink }]}>Metode Pembayaran:</Text>
 
-              {/* Fase 1: hanya TUNAI. Opsi QRIS dibuka di Fase 6 (B5). */}
+              {/* Fase 1–2: hanya TUNAI. QRIS terkunci sampai Fase 6. */}
               <View style={styles.metodeRow}>
                 <View
                   style={[
@@ -231,6 +440,14 @@ export default function KasirPaymentScreen() {
                 >
                   <Text style={[styles.metodeText, { color: theme.ink }]}>💵 TUNAI</Text>
                 </View>
+
+                <TouchableOpacity
+                  style={[styles.metodeBtn, brutalistCard(theme as any), { opacity: 0.55 }]}
+                  onPress={() => Alert.alert('🔒 Segera Hadir', 'Pembayaran QRIS dibuka di Fase 6.')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.metodeText, { color: theme.ink }]}>🔒 QRIS</Text>
+                </TouchableOpacity>
               </View>
 
               {errorMessage ? (
@@ -298,6 +515,8 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 20, fontWeight: '800', marginBottom: 14 },
   modalDetailBox: { marginBottom: 16, gap: 4 },
   modalLabel: { fontSize: 14 },
+  notaLine: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  notaLineVal: { fontSize: 14, fontWeight: '700' },
   modalPrice: { fontSize: 22, fontWeight: '800', marginTop: 8 },
   metodeTitle: { fontSize: 14, fontWeight: '700', marginBottom: 8 },
   metodeRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
@@ -305,4 +524,11 @@ const styles = StyleSheet.create({
   metodeText: { fontSize: 14, fontWeight: '800' },
   errorText: { fontSize: 13, fontWeight: '600', marginBottom: 10 },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  walkinRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 10 },
+  walkinName: { fontSize: 14, fontWeight: '800' },
+  walkinPrice: { fontSize: 13, fontWeight: '800', marginTop: 2 },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 4, borderRadius: 6 },
+  stepBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 4 },
+  stepBtnText: { fontSize: 16, fontWeight: '800' },
+  qtyText: { fontSize: 14, fontWeight: '800', minWidth: 20, textAlign: 'center' },
 });

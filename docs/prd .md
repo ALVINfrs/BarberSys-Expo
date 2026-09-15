@@ -1073,6 +1073,8 @@ Tabel ini adalah tempat menampung **semua temuan, kekurangan, dan ide tambahan**
 | B5 | Fase 1 | Kebocoran scope: selector Tunai/QRIS di payment (F4.1/F6.1), rating ★4.9 hardcode di ambil-antrian (F2.2) | Kunci payment ke `tunai` sampai Fase 6; ganti rating hardcode jadi "—" sampai F2.2 | Sedang | Selesai |
 | B6 | Skema (prasyarat Fase 2) | Missing vs Bagian 7: tabel `products`, `treatments.foto_url`, `queue.instruksi_potongan`, `barbershop_settings.nama_toko/alamat`, buckets `avatars/treatments/products` (+FK `queue_products.product_id`) | Migrasi skema + Storage policy + sinkron `src/types/database.ts` sebelum F2.3/F2.7/F2.9 | Tinggi | Selesai |
 | B7 | Desain | `ThemeContext` light `bg #FCF9F8` vs `design.md #FAFAF7`; dark `cardBorder #333338` bukan `ink` | Samakan ke token design.md atau catat sebagai keputusan sadar | Rendah | Disetujui, menunggu jadwal |
+| B9 | Fase 2 | Elemen Stitch yang fasenya belum tiba ditampilkan sebagai kunci "🔒 Segera Hadir" (Batalkan C3→F3.3, Walk-in K1→F3.5, QRIS→Fase 6, tab Ringkasan/Laporan Admin→Fase 4) | Ganti kunci dengan implementasi asli saat fasenya tiba; hapus placeholder ringkasan/laporan saat F4.5/F4.4 | Sedang | Selesai |
+| B10 | Stitch | Layar Barber Stitch memuat "Antrian Berikutnya" + tombol Panggil-Ulang/No-Show — tidak ada requirement PRD yang meminta ini | Putuskan: tambah ke scope Fase 3 atau nyatakan di luar scope | Rendah | Belum ditinjau |
 | B8 | Fase 1 | `npx tsc --noEmit` gagal di file sisa template (app-tabs, themed-view, collapsible, dsb. merujuk API tema lama `Colors`/`ThemeColor`) — pre-existing, di luar file Fase 1 | Rapikan/hapus komponen tak terpakai atau selaraskan ke token baru; tidak blokir runtime Expo | Rendah | Belum ditinjau |
 
 **Keterangan kolom:**
