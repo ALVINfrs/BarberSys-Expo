@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,9 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Image,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { Treatment, Profile, Product } from '@/types/database';
@@ -18,6 +17,7 @@ import { useAuth } from '@/context/AuthContext';
 import { RoleHeader } from '@/components/RoleHeader';
 import { brutalistCard, brutalistButton } from '@/constants/theme';
 import { useAppTheme } from '@/context/ThemeContext';
+import { filterAvailableBarbers, isSelectedBarberStillAvailable } from '@/lib/barber-availability';
 
 export default function AmbilAntrianScreen() {
   const { theme } = useAppTheme();
@@ -36,16 +36,69 @@ export default function AmbilAntrianScreen() {
   const [instruksiFocused, setInstruksiFocused] = useState(false);
   // F2.2: rating rata-rata per barber { avg, count }
   const [barberRatings, setBarberRatings] = useState<Record<string, { avg: number; count: number }>>({});
+  // Kursi 7 polish: beban & estimasi per barber {count, totalMenit}
+  const [barberLoad, setBarberLoad] = useState<Record<string, { count: number; totalMenit: number }>>({});
 
   const [loadingData, setLoadingData] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  const fetchBarbersOnly = async () => {
+    try {
+      const { data: barbData, error: barbErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('role', 'barber')
+        .eq('status_akun', 'aktif');
+      if (barbErr) throw barbErr;
+      const barbList = (barbData as Profile[]) || [];
+      setBarbers((prev) => {
+        // F3.2: if selected barber became unavailable, clear and notify
+        if (!isSelectedBarberStillAvailable(barbList, selectedBarberId)) {
+          const stale = prev.find((b) => b.id === selectedBarberId);
+          if (stale) {
+            setErrorMessage(`Barber ${stale.nama} sekarang istirahat. Pilihan direset ke Siapa saja.`);
+            setSelectedBarberId(null);
+          }
+        }
+        return barbList;
+      });
+      const { data: rateData } = await supabase.rpc('barber_rating_stats');
+      if (rateData) {
+        const avgMap: Record<string, { avg: number; count: number }> = {};
+        ((rateData as any[]) || []).forEach((r) => {
+          if (!r.barber_id) return;
+          avgMap[r.barber_id] = { avg: Number(r.avg_rating), count: Number(r.rating_count) };
+        });
+        setBarberRatings(avgMap);
+      }
+      // Beban & estimasi per barber (menunggu+dipanggil+dilayani)
+      const { data: loadData2 } = await supabase
+        .from('queue')
+        .select('barber_id, treatments(durasi_menit)')
+        .in('status', ['menunggu', 'dipanggil', 'dilayani'])
+        .not('barber_id', 'is', null);
+      if (loadData2) {
+        const m: Record<string, { count: number; totalMenit: number }> = {};
+        ((loadData2 as any[]) || []).forEach((r) => {
+          const bid = r.barber_id;
+          if (!bid) return;
+          const cur = m[bid] || { count: 0, totalMenit: 0 };
+          cur.count += 1;
+          cur.totalMenit += r.treatments?.durasi_menit ?? 30;
+          m[bid] = cur;
+        });
+        setBarberLoad(m);
+      }
+    } catch (e: any) {
+      console.error('Error refreshing barbers:', e);
+    }
+  };
+
   const loadData = async () => {
     setLoadingData(true);
     setErrorMessage(null);
     try {
-      // 1. Fetch active treatments
       const { data: treatData, error: treatErr } = await supabase
         .from('treatments')
         .select('*')
@@ -56,7 +109,6 @@ export default function AmbilAntrianScreen() {
       const listTreatments = (treatData as Treatment[]) || [];
       setTreatments(listTreatments);
 
-      // Pre-select treatment if passed from C1 params
       if (params.selectedTreatmentId) {
         const found = listTreatments.find((t) => t.id === params.selectedTreatmentId);
         if (found) setSelectedTreatment(found);
@@ -65,7 +117,6 @@ export default function AmbilAntrianScreen() {
         setSelectedTreatment(listTreatments[0]);
       }
 
-      // 2. Fetch active barbers
       const { data: barbData, error: barbErr } = await supabase
         .from('profiles')
         .select('*')
@@ -76,7 +127,6 @@ export default function AmbilAntrianScreen() {
       const barbList = (barbData as Profile[]) || [];
       setBarbers(barbList);
 
-      // F2.2: rating rata-rata on-the-fly per barber (via RPC agregat, aman RLS)
       const { data: rateData } = await supabase.rpc('barber_rating_stats');
       if (rateData) {
         const avgMap: Record<string, { avg: number; count: number }> = {};
@@ -86,8 +136,24 @@ export default function AmbilAntrianScreen() {
         });
         setBarberRatings(avgMap);
       }
+      const { data: loadQ } = await supabase
+        .from('queue')
+        .select('barber_id, treatments(durasi_menit)')
+        .in('status', ['menunggu', 'dipanggil', 'dilayani'])
+        .not('barber_id', 'is', null);
+      if (loadQ) {
+        const m: Record<string, { count: number; totalMenit: number }> = {};
+        ((loadQ as any[]) || []).forEach((r) => {
+          const bid = r.barber_id;
+          if (!bid) return;
+          const cur = m[bid] || { count: 0, totalMenit: 0 };
+          cur.count += 1;
+          cur.totalMenit += r.treatments?.durasi_menit ?? 30;
+          m[bid] = cur;
+        });
+        setBarberLoad(m);
+      }
 
-      // 3. Fetch active products (F2.4 add-on)
       const { data: prodData, error: prodErr } = await supabase
         .from('products')
         .select('*')
@@ -107,6 +173,27 @@ export default function AmbilAntrianScreen() {
   useEffect(() => {
     loadData();
   }, [params.selectedTreatmentId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchBarbersOnly();
+    }, [selectedBarberId])
+  );
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('ambil-antrian-barbers')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+        fetchBarbersOnly();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'queue' }, () => {
+        fetchBarbersOnly();
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedBarberId]);
 
   const formatRupiah = (val: number) => 'Rp ' + val.toLocaleString('id-ID');
 
@@ -130,11 +217,25 @@ export default function AmbilAntrianScreen() {
       return;
     }
 
+    // F3.2: revalidate selected barber before submit (race guard)
+    if (selectedBarberId) {
+      const { data: freshBarber } = await supabase
+        .from('profiles')
+        .select('id, status_kerja, nama')
+        .eq('id', selectedBarberId)
+        .single();
+      if (!freshBarber || (freshBarber as any).status_kerja === 'istirahat') {
+        setErrorMessage('Barber yang dipilih baru saja istirahat. Silakan pilih barber lain atau Siapa saja.');
+        setSelectedBarberId(null);
+        await fetchBarbersOnly();
+        return;
+      }
+    }
+
     setSubmitting(true);
     setErrorMessage(null);
 
     try {
-      // Check if user already has an active queue
       const { data: activeQueue, error: checkErr } = await supabase
         .from('queue')
         .select('id, nomor_antrian, status')
@@ -306,10 +407,16 @@ export default function AmbilAntrianScreen() {
                 />
               </TouchableOpacity>
 
-              {/* List of active barbers */}
-              {barbers.map((b) => {
+              {/* F3.2: hanya barber tersedia — istirahat disembunyikan (PRD F3.2) */}
+              {filterAvailableBarbers(barbers).map((b) => {
                 const isSelected = selectedBarberId === b.id;
-                const isRest = b.status_kerja === 'istirahat';
+                const load = barberLoad[b.id] || { count: 0, totalMenit: 0 };
+                const badge =
+                  load.count === 0
+                    ? { bg: theme.success, label: '🟢 Tersedia' }
+                    : load.count >= 5
+                      ? { bg: theme.danger, label: `🔴 Padat (${load.count} antrian)` }
+                      : { bg: theme.amber, label: `🟡 Sibuk (${load.count} antrian)` };
                 return (
                   <TouchableOpacity
                     key={b.id}
@@ -317,16 +424,8 @@ export default function AmbilAntrianScreen() {
                       styles.barberCard,
                       brutalistCard(theme as any),
                       isSelected && { borderColor: theme.primary, borderWidth: 3 },
-                      isRest && { opacity: 0.5 },
                     ]}
-                    onPress={() => {
-                      if (isRest) {
-                        Alert.alert('Barber Istirahat', `${b.nama} saat ini sedang istirahat.`);
-                        return;
-                      }
-                      setSelectedBarberId(b.id);
-                    }}
-                    disabled={isRest}
+                    onPress={() => setSelectedBarberId(b.id)}
                     activeOpacity={0.8}
                   >
                     <View style={styles.barberLeftRow}>
@@ -350,11 +449,14 @@ export default function AmbilAntrianScreen() {
                               : '★ —'}
                           </Text>
                         </View>
-                        <View style={[styles.statusBadge, { backgroundColor: isRest ? theme.neutral : theme.success }]}>
-                          <Text style={styles.statusBadgeText}>
-                            {isRest ? 'Istirahat' : '🟢 Tersedia'}
-                          </Text>
+                        <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
+                          <Text style={[styles.statusBadgeText, badge.bg === theme.amber ? { color: theme.ink } : null]}>{badge.label}</Text>
                         </View>
+                        {load.count > 0 ? (
+                          <Text style={[styles.estText, { color: load.count >= 5 ? theme.danger : theme.inkMuted }]}>
+                            Estimasi ±{load.totalMenit} menit{load.count >= 5 ? ' — lebih lama karena padat' : ''}
+                          </Text>
+                        ) : null}
                       </View>
                     </View>
 
@@ -470,9 +572,45 @@ export default function AmbilAntrianScreen() {
                   </View>
                   <View style={{ alignItems: 'flex-end' }}>
                     <Text style={[styles.summaryLabel, { color: theme.inkMuted }]}>Estimasi Dipanggil</Text>
-                    <Text style={[styles.summaryEst, { color: theme.ink }]}>± 15 Menit</Text>
+                    <Text style={[styles.summaryEst, { color: theme.ink }]}>
+                      {(() => {
+                        if (selectedBarberId && barberLoad[selectedBarberId]) {
+                          const m = barberLoad[selectedBarberId].totalMenit;
+                          return `± ${m} Menit`;
+                        }
+                        return '± 10 Menit';
+                      })()}
+                    </Text>
                   </View>
                 </View>
+
+                {(() => {
+                  const selLoad = selectedBarberId ? barberLoad[selectedBarberId] : null;
+                  if (!selLoad || selLoad.count < 3) return null;
+                  const isPadat = selLoad.count >= 5;
+                  return (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 8,
+                        borderWidth: 1.5,
+                        borderColor: isPadat ? theme.danger : theme.ink,
+                        backgroundColor: isPadat ? '#FFE0E0' : theme.amber,
+                        borderRadius: 6,
+                        padding: 10,
+                        marginBottom: 12,
+                      }}
+                    >
+                      <MaterialIcons name={isPadat ? 'warning' : 'info-outline'} size={18} color={isPadat ? theme.danger : theme.ink} />
+                      <Text style={{ fontSize: 12, fontWeight: '700', flex: 1, lineHeight: 16, color: isPadat ? theme.danger : theme.ink }}>
+                        {isPadat
+                          ? `Barber padat (${selLoad.count} antrian) — estimasi ±${selLoad.totalMenit} menit, akan lebih lama. Tetap pilih?`
+                          : `Barber sibuk (${selLoad.count} antrian) — estimasi ±${selLoad.totalMenit} menit.`}
+                      </Text>
+                    </View>
+                  );
+                })()}
 
                 {errorMessage ? (
                   <View style={[styles.errorContainer, { borderColor: theme.danger }]}>
@@ -560,6 +698,7 @@ const styles = StyleSheet.create({
   barberSub: { fontSize: 12, marginTop: 2 },
   statusBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start', marginTop: 3 },
   statusBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
+  estText: { fontSize: 11, fontWeight: '600', marginTop: 3 },
   productGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   productCard: { width: '48%', padding: 10, borderRadius: 8 },
   productImage: { width: '100%', height: 80, borderWidth: 1.5, marginBottom: 8 },

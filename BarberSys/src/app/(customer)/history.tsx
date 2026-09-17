@@ -37,8 +37,8 @@ export default function CustomerHistoryScreen() {
         .from('queue')
         .select('*, treatments(*), barber:profiles!queue_barber_id_fkey(*)')
         .eq('user_id', user.id)
-        .eq('status', 'lunas')
-        .order('completed_at', { ascending: false });
+        .in('status', ['lunas', 'dibatalkan'])
+        .order('created_at', { ascending: false });
 
       if (error) {
         console.error('Error fetching history:', error.message);
@@ -130,8 +130,15 @@ export default function CustomerHistoryScreen() {
                   <Text style={[styles.dateText, { color: theme.inkMuted }]}>
                     {formatDate(item.completed_at || item.created_at)}
                   </Text>
-                  <View style={[styles.statusBadge, { backgroundColor: theme.success }]}>
-                    <Text style={styles.statusBadgeText}>LUNAS</Text>
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      { backgroundColor: item.status === 'dibatalkan' ? theme.neutral : theme.success },
+                    ]}
+                  >
+                    <Text style={styles.statusBadgeText}>
+                      {item.status === 'dibatalkan' ? 'DIBATALKAN' : 'LUNAS'}
+                    </Text>
                   </View>
                 </View>
 
@@ -145,6 +152,13 @@ export default function CustomerHistoryScreen() {
                     {item.barber?.nama || 'Barber Toko'}
                   </Text>
                 </View>
+
+                {(item as any).kursi_nomor != null ? (
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.inkMuted }]}>Kursi:</Text>
+                    <Text style={[styles.infoVal, { color: theme.ink }]}>Kursi {(item as any).kursi_nomor}</Text>
+                  </View>
+                ) : null}
 
                 <View style={styles.infoRow}>
                   <Text style={[styles.infoLabel, { color: theme.inkMuted }]}>Metode Bayar:</Text>

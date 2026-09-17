@@ -35,6 +35,7 @@ export default function StatusAntrianScreen() {
   const [currentServingNo, setCurrentServingNo] = useState<number | null>(null);
   const [totalWaitingCount, setTotalWaitingCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  const [cancelling, setCancelling] = useState(false);
   // F2.1: rating untuk tiket lunas yang belum dirating
   const [unratedQueue, setUnratedQueue] = useState<ExtendedQueueItem | null>(null);
   const [rating, setRating] = useState(0);
@@ -150,6 +151,49 @@ export default function StatusAntrianScreen() {
     }
   };
 
+  const handleCancelQueue = async () => {
+    if (!activeQueue || !user || cancelling) return;
+    if (activeQueue.status !== 'menunggu') {
+      Alert.alert('Tidak bisa dibatalkan', 'Antrian hanya bisa dibatalkan saat status Menunggu.');
+      return;
+    }
+    Alert.alert('Batalkan Antrian?', `Yakin batalkan tiket No. ${activeQueue.nomor_antrian}?`, [
+      { text: 'Tidak', style: 'cancel' },
+      {
+        text: 'Ya, Batalkan',
+        style: 'destructive',
+        onPress: async () => {
+          setCancelling(true);
+          try {
+            const { data, error } = await supabase
+              .from('queue')
+              .update({ status: 'dibatalkan' })
+              .eq('id', activeQueue.id)
+              .eq('user_id', user.id)
+              .eq('status', 'menunggu')
+              .select()
+              .single();
+            if (error) throw error;
+            if (!data) {
+              Alert.alert('Gagal', 'Antrian sudah berubah status, tidak bisa dibatalkan.');
+              await fetchActiveQueue();
+              return;
+            }
+            setActiveQueue(null);
+            Alert.alert('Berhasil', 'Antrian dibatalkan.');
+            await fetchActiveQueue();
+          } catch (e: any) {
+            console.error('Cancel failed:', e);
+            Alert.alert('Gagal', e.message || 'Tidak bisa membatalkan antrian.');
+            await fetchActiveQueue();
+          } finally {
+            setCancelling(false);
+          }
+        },
+      },
+    ]);
+  };
+
   // F2.11: bagikan tiket via share sheet perangkat
   const [sharing, setSharing] = useState(false);
   const handleShareTicket = async () => {
@@ -157,11 +201,13 @@ export default function StatusAntrianScreen() {
     setSharing(true);
     try {
       const no = activeQueue.nomor_antrian < 10 ? `A-0${activeQueue.nomor_antrian}` : `A-${activeQueue.nomor_antrian}`;
+      const kursiTxt = (activeQueue as any).kursi_nomor != null ? `Kursi ${(activeQueue as any).kursi_nomor}` : 'Menunggu penempatan kursi';
       const text =
         `Tiket Antrian BarberSys\n` +
         `Nomor: ${no}\n` +
         `Layanan: ${activeQueue.treatments?.nama || '-'}\n` +
         `Barber: ${activeQueue.barber?.nama || 'Siapa saja yang tersedia'}\n` +
+        `Kursi: ${kursiTxt}\n` +
         `Status: ${activeQueue.status}\n` +
         `Estimasi: ±${activeQueue.treatments?.durasi_menit || 30} menit lagi`;
       const fileUri = `${cacheDirectory}tiket-${activeQueue.id}.txt`;
@@ -317,9 +363,20 @@ export default function StatusAntrianScreen() {
                     {activeQueue.barber?.nama || 'Siapa saja yang tersedia'}
                   </Text>
                 </View>
+
+                {(activeQueue as any).kursi_nomor != null ? (
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.inkMuted }]}>Kursi:</Text>
+                    <Text style={[styles.infoVal, { color: theme.primary }]}>Kursi {(activeQueue as any).kursi_nomor}</Text>
+                  </View>
+                ) : activeQueue.status === 'menunggu' ? (
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.inkMuted }]}>Kursi:</Text>
+                    <Text style={[styles.infoVal, { color: theme.inkMuted }]}>Menunggu penempatan kursi</Text>
+                  </View>
+                ) : null}
               </View>
 
-              {/* F2.11: Kirim Tiket (Stitch: ghost + ikon share) + Batalkan terkunci (F3.3) */}
               <View style={styles.ticketActions}>
                 <TouchableOpacity
                   style={styles.shareRow}
@@ -336,19 +393,21 @@ export default function StatusAntrianScreen() {
                     {sharing ? 'Menyiapkan...' : 'Kirim Tiket'}
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() =>
-                    Alert.alert(
-                      '🔒 Segera Hadir',
-                      'Pembatalan antrian dibuka di Fase 3.'
-                    )
-                  }
-                >
-                  <Text style={[styles.cancelLocked, { color: theme.danger }]}>
+                {activeQueue.status === 'menunggu' ? (
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={handleCancelQueue}
+                    disabled={cancelling}
+                  >
+                    <Text style={[styles.cancelActive, { color: theme.danger }]}>
+                      {cancelling ? 'Membatalkan...' : 'Batalkan Antrian'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={[styles.cancelLocked, { color: theme.neutral }]}>
                     Batalkan Antrian
                   </Text>
-                </TouchableOpacity>
+                )}
               </View>
             </View>
           </View>
@@ -482,7 +541,8 @@ const styles = StyleSheet.create({
   ticketActions: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, minHeight: 44 },
   shareRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   shareText: { fontSize: 13, fontWeight: '600' },
-  cancelLocked: { fontSize: 13, fontWeight: '700', opacity: 0.75 },
+  cancelLocked: { fontSize: 13, fontWeight: '700', opacity: 0.45 },
+  cancelActive: { fontSize: 13, fontWeight: '800' },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between' },
   ratingOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   ratingCard: { padding: 20, borderRadius: 0 },

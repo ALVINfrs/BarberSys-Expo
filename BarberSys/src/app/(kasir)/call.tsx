@@ -9,11 +9,13 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { supabase } from '@/lib/supabase';
+import { MaterialIcons } from '@expo/vector-icons';
 import { QueueItem, Treatment, Profile } from '@/types/database';
 import { useAuth } from '@/context/AuthContext';
 import { RoleHeader } from '@/components/RoleHeader';
 import { brutalistCard, brutalistButton, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/context/ThemeContext';
+import { getOccupiedKursi, getAvailableKursi } from '@/lib/kursi-availability';
 
 interface QueueDetail extends QueueItem {
   customer: Profile | null;
@@ -30,6 +32,10 @@ export default function KasirCallScreen() {
   const [queueDetail, setQueueDetail] = useState<QueueDetail | null>(null);
   const [barbers, setBarbers] = useState<Profile[]>([]);
   const [selectedBarberId, setSelectedBarberId] = useState<string | null>(null);
+  const [jumlahKursi, setJumlahKursi] = useState(7);
+  const [occupiedKursi, setOccupiedKursi] = useState<Set<number>>(new Set());
+  const [selectedKursi, setSelectedKursi] = useState<number | null>(null);
+  const [barberLoad, setBarberLoad] = useState<Record<string, { count: number; totalMenit: number }>>({});
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -74,6 +80,39 @@ export default function KasirCallScreen() {
       if (!detail.barber_id && barbList.length > 0) {
         setSelectedBarberId(barbList[0].id);
       }
+
+      // 3. Fetch jumlah kursi + occupied kursi — default 7 (B13 + kursi 7 polish)
+      const { data: shop } = await supabase.from('barbershop_settings').select('jumlah_kursi').limit(1).single();
+      const j = (shop as any)?.jumlah_kursi ?? 7;
+      setJumlahKursi(j);
+      const { data: occData } = await supabase
+        .from('queue')
+        .select('kursi_nomor, status')
+        .in('status', ['dipanggil', 'dilayani']);
+      const occ = getOccupiedKursi((occData as any) || []);
+      setOccupiedKursi(occ);
+      const avail = getAvailableKursi(j, occ);
+      if (avail.length > 0) setSelectedKursi(avail[0]);
+      else setSelectedKursi(null);
+
+      // 4. Beban & estimasi per barber (samain customer new.tsx)
+      const { data: loadQ } = await supabase
+        .from('queue')
+        .select('barber_id, treatments(durasi_menit)')
+        .in('status', ['menunggu', 'dipanggil', 'dilayani'])
+        .not('barber_id', 'is', null);
+      if (loadQ) {
+        const m: Record<string, { count: number; totalMenit: number }> = {};
+        ((loadQ as any[]) || []).forEach((r) => {
+          const bid = r.barber_id;
+          if (!bid) return;
+          const cur = m[bid] || { count: 0, totalMenit: 0 };
+          cur.count += 1;
+          cur.totalMenit += r.treatments?.durasi_menit ?? 30;
+          m[bid] = cur;
+        });
+        setBarberLoad(m);
+      }
     } catch (e: any) {
       console.error('Error loading call screen data:', e);
       setErrorMessage(e.message || 'Gagal memuat detail antrian.');
@@ -91,6 +130,15 @@ export default function KasirCallScreen() {
       setErrorMessage('Pilih barber tujuan terlebih dahulu.');
       return;
     }
+    if (selectedKursi == null) {
+      setErrorMessage('Pilih kursi (semua kursi penuh).');
+      return;
+    }
+    const selBarber = barbers.find((b) => b.id === selectedBarberId);
+    if (selBarber?.status_kerja === 'istirahat') {
+      setErrorMessage('Barber istirahat tidak bisa dipanggil.');
+      return;
+    }
 
     setSubmitting(true);
     setErrorMessage(null);
@@ -102,6 +150,7 @@ export default function KasirCallScreen() {
           status: 'dipanggil',
           barber_id: selectedBarberId,
           kasir_id: user.id,
+          kursi_nomor: selectedKursi,
           called_at: new Date().toISOString(),
         })
         .eq('id', queueDetail.id);
@@ -162,6 +211,43 @@ export default function KasirCallScreen() {
               </Text>
             </View>
 
+            {/* Select Kursi — Opsi A: amber brutalist + ikon event-seat + fallback penuh */}
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: theme.ink }]}>Pilih Kursi</Text>
+              {getAvailableKursi(jumlahKursi, occupiedKursi).length === 0 ? (
+                <View style={[styles.kursiFullBanner, { backgroundColor: '#FFF3CD', borderColor: theme.danger }]}>
+                  <MaterialIcons name="event-seat" size={18} color={theme.danger} />
+                  <Text style={[styles.kursiFullText, { color: theme.danger }]}>
+                    🚫 Kapasitas penuh — 7/7 kursi terisi ({[...occupiedKursi].sort((a, b) => a - b).map((x) => `Kursi ${x}`).join(', ')}) • Selesaikan 1 layanan dulu
+                  </Text>
+                </View>
+              ) : null}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+                {getAvailableKursi(jumlahKursi, occupiedKursi).map((n) => {
+                  const sel = selectedKursi === n;
+                  return (
+                    <TouchableOpacity
+                      key={n}
+                      style={[
+                        styles.kursiChip,
+                        sel
+                          ? { backgroundColor: theme.amber, borderColor: theme.ink, shadowColor: theme.cardShadow, shadowOffset: { width: 3, height: 3 }, shadowOpacity: 1, shadowRadius: 0, elevation: 3 }
+                          : { backgroundColor: theme.surface, borderColor: theme.cardBorder },
+                      ]}
+                      onPress={() => setSelectedKursi(n)}
+                      activeOpacity={0.8}
+                    >
+                      <MaterialIcons name="event-seat" size={16} color={sel ? theme.ink : theme.secondary} />
+                      <Text style={[styles.kursiText, { color: sel ? theme.ink : theme.ink }]}>Kursi {n}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {getAvailableKursi(jumlahKursi, occupiedKursi).length === 0 ? null : (
+                <Text style={[styles.kursiHint, { color: theme.inkMuted }]}>Tersedia {getAvailableKursi(jumlahKursi, occupiedKursi).length} dari {jumlahKursi} kursi</Text>
+              )}
+            </View>
+
             {/* Select Barber */}
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: theme.ink }]}>
@@ -176,6 +262,14 @@ export default function KasirCallScreen() {
                 barbers.map((b) => {
                   const isSelected = selectedBarberId === b.id;
                   const isRest = b.status_kerja === 'istirahat';
+                  const load = barberLoad[b.id] || { count: 0, totalMenit: 0 };
+                  const badge = isRest
+                    ? { bg: theme.neutral, label: 'Istirahat', textColor: '#FFFFFF' }
+                    : load.count === 0
+                      ? { bg: theme.success, label: '🟢 Tersedia', textColor: '#FFFFFF' }
+                      : load.count >= 5
+                        ? { bg: theme.danger, label: `🔴 Padat (${load.count})`, textColor: '#FFFFFF' }
+                        : { bg: theme.amber, label: `🟡 Sibuk (${load.count})`, textColor: theme.ink };
                   return (
                     <TouchableOpacity
                       key={b.id}
@@ -189,16 +283,16 @@ export default function KasirCallScreen() {
                       activeOpacity={0.8}
                     >
                       <View style={styles.barberRow}>
-                        <Text style={[styles.barberName, { color: theme.ink }]}>💈 {b.nama}</Text>
-                        <View
-                          style={[
-                            styles.statusBadge,
-                            { backgroundColor: isRest ? theme.neutral : theme.success },
-                          ]}
-                        >
-                          <Text style={styles.statusBadgeText}>
-                            {isRest ? 'Istirahat' : 'Tersedia'}
-                          </Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.barberName, { color: theme.ink }]}>💈 {b.nama}</Text>
+                          {load.count > 0 && !isRest ? (
+                            <Text style={[styles.estText, { color: load.count >= 5 ? theme.danger : theme.inkMuted }]}>
+                              Estimasi ±{load.totalMenit} menit{load.count >= 5 ? ' — lebih lama karena padat' : ''}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
+                          <Text style={[styles.statusBadgeText, { color: badge.textColor }]}>{badge.label}</Text>
                         </View>
                       </View>
                     </TouchableOpacity>
@@ -206,6 +300,28 @@ export default function KasirCallScreen() {
                 })
               )}
             </View>
+
+            {/* Warning padat */}
+            {(() => {
+              const selLoad = selectedBarberId ? barberLoad[selectedBarberId] : null;
+              if (!selLoad || selLoad.count < 3) return null;
+              const isPadat = selLoad.count >= 5;
+              return (
+                <View
+                  style={[
+                    styles.warningBox,
+                    { backgroundColor: isPadat ? '#FFE0E0' : theme.amber, borderColor: isPadat ? theme.danger : theme.ink },
+                  ]}
+                >
+                  <MaterialIcons name={isPadat ? 'warning' : 'info-outline'} size={18} color={isPadat ? theme.danger : theme.ink} />
+                  <Text style={[styles.warningText, { color: isPadat ? theme.danger : theme.ink }]}>
+                    {isPadat
+                      ? `Barber padat (${selLoad.count} antrian) — estimasi ±${selLoad.totalMenit} menit, akan lebih lama. Tetap tugaskan?`
+                      : `Barber sibuk (${selLoad.count} antrian) — estimasi ±${selLoad.totalMenit} menit.`}
+                  </Text>
+                </View>
+              );
+            })()}
 
             {/* Error message */}
             {errorMessage ? (
@@ -257,6 +373,14 @@ const styles = StyleSheet.create({
   barberName: { fontSize: 16, fontWeight: '700' },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
   statusBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
+  kursiChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 2, borderRadius: 6, minWidth: 88, justifyContent: 'center' },
+  kursiText: { fontSize: 14, fontWeight: '800' },
+  kursiFullBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderRadius: 6, padding: 10, marginBottom: 4 },
+  kursiFullText: { fontSize: 12, fontWeight: '700', flex: 1, lineHeight: 16 },
+  kursiHint: { fontSize: 12, fontWeight: '600', marginTop: 6 },
+  estText: { fontSize: 11, fontWeight: '600', marginTop: 2 },
+  warningBox: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1.5, borderRadius: 6, padding: 10, marginBottom: 12 },
+  warningText: { fontSize: 12, fontWeight: '700', flex: 1, lineHeight: 16 },
   errorContainer: { borderLeftWidth: 3, paddingLeft: 8, paddingVertical: 8, marginBottom: 16 },
   errorText: { fontSize: 13, fontWeight: '600' },
   confirmBtn: { paddingVertical: 14 },

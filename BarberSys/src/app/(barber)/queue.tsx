@@ -23,7 +23,7 @@ interface BarberQueueItem extends QueueItem {
 
 export default function BarberQueueScreen() {
   const { theme } = useAppTheme();
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
 
   const [queueList, setQueueList] = useState<BarberQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +31,8 @@ export default function BarberQueueScreen() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   // F2.2: rating rata-rata barber ini
   const [myRating, setMyRating] = useState<{ avg: number; count: number } | null>(null);
+  // F3.1: mode operasional (istirahat manual + tersedia/sibuk on-the-fly)
+  const [togglingRest, setTogglingRest] = useState(false);
   // F2.10: ringkasan kerja hari ini
   const [todayCount, setTodayCount] = useState(0);
   const [workTimeLabel, setWorkTimeLabel] = useState('0j 0m');
@@ -123,6 +125,26 @@ export default function BarberQueueScreen() {
     fetchAssignedQueue();
   };
 
+  // F3.1: toggle Istirahat manual (PRD 11.2) — satu-satunya nilai yang disimpan
+  const handleToggleIstirahat = async () => {
+    if (!user || !profile || togglingRest) return;
+    const goingRest = profile.status_kerja !== 'istirahat';
+    setTogglingRest(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ status_kerja: goingRest ? 'istirahat' : 'aktif' })
+        .eq('id', user.id);
+      if (error) throw error;
+      await refreshProfile(user.id);
+    } catch (e: any) {
+      console.error('Error toggling istirahat:', e);
+      Alert.alert('Gagal', 'Tidak bisa mengubah mode operasional. Coba lagi.');
+    } finally {
+      setTogglingRest(false);
+    }
+  };
+
   const handleMulaiLayanan = async (queueId: string) => {
     setUpdatingId(queueId);
     try {
@@ -175,16 +197,30 @@ export default function BarberQueueScreen() {
           </Text>
         </View>
 
-        {/* Mode operasional (Stitch) — toggle Istirahat manual dibuka di Fase 3 (F3.1) */}
+        {/* F3.1: Mode operasional — Tersedia/Sibuk dihitung dari antrian (PRD 11.2), Istirahat manual */}
         <TouchableOpacity
           style={[styles.modeRow, brutalistCard(theme as any)]}
-          onPress={() => Alert.alert('🔒 Segera Hadir', 'Toggle Istirahat manual dibuka di Fase 3.')}
+          onPress={handleToggleIstirahat}
+          disabled={togglingRest}
           activeOpacity={0.7}
         >
-          <Text style={[styles.modeLabel, { color: theme.inkMuted }]}>Mode Operasional</Text>
-          <Text style={[styles.modeVal, { color: theme.ink }]}>
-            {profile?.status_kerja === 'istirahat' ? '🔒 ISTIRAHAT' : '🔒 TERSEDIA / SIAP'}
-          </Text>
+          <View style={styles.modeLeft}>
+            <Text style={[styles.modeLabel, { color: theme.inkMuted }]}>Mode Operasional</Text>
+            <Text style={[styles.modeVal, { color: theme.ink }]}>
+              {profile?.status_kerja === 'istirahat'
+                ? '⚫ ISTIRAHAT'
+                : queueList.some((q) => q.status === 'dilayani')
+                  ? '🟡 SIBUK'
+                  : '🟢 TERSEDIA / SIAP'}
+            </Text>
+          </View>
+          {togglingRest ? (
+            <ActivityIndicator size="small" color={theme.amber} />
+          ) : (
+            <Text style={[styles.modeToggle, { color: profile?.status_kerja === 'istirahat' ? theme.success : theme.danger }]}>
+              {profile?.status_kerja === 'istirahat' ? '▶ AKTIFKAN' : '⏸ ISTIRAHAT'}
+            </Text>
+          )}
         </TouchableOpacity>
 
         {/* F2.10: header statistik harian */}
@@ -238,7 +274,7 @@ export default function BarberQueueScreen() {
                   </View>
 
                   <Text style={[styles.custName, { color: theme.ink }]}>
-                    👤 {item.customer?.nama || 'Pelanggan'}
+                    👤 {item.customer?.nama || (item as any).nama_customer || 'Pelanggan'}
                   </Text>
 
                   <View style={styles.infoRow}>
@@ -247,6 +283,13 @@ export default function BarberQueueScreen() {
                       {item.treatments?.nama} ({item.treatments?.durasi_menit} mnt)
                     </Text>
                   </View>
+
+                  {(item as any).kursi_nomor != null ? (
+                    <View style={styles.infoRow}>
+                      <Text style={[styles.infoLabel, { color: theme.inkMuted }]}>Kursi:</Text>
+                      <Text style={[styles.infoVal, { color: theme.primary }]}>Kursi {(item as any).kursi_nomor}</Text>
+                    </View>
+                  ) : null}
 
                   {item.instruksi_potongan ? (
                     <View style={[styles.instruksiBox, { backgroundColor: theme.surfaceContainerLow, borderColor: theme.cardBorder, borderLeftColor: theme.amber }]}>
@@ -308,9 +351,11 @@ const styles = StyleSheet.create({
   heading: { fontSize: 20, fontWeight: '800' },
   subheading: { fontSize: 13, marginTop: 2, fontWeight: '500' },
   ratingLine: { fontSize: 14, fontWeight: '800', marginTop: 4 },
-  modeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, marginBottom: 12, opacity: 0.85 },
+  modeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, marginBottom: 12 },
+  modeLeft: { gap: 1 },
   modeLabel: { fontSize: 12, fontWeight: '600' },
   modeVal: { fontSize: 13, fontWeight: '800' },
+  modeToggle: { fontSize: 13, fontWeight: '800' },
   statRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
   statCard: { flex: 1, padding: 12 },
   statLabel: { fontSize: 12, fontWeight: '600' },

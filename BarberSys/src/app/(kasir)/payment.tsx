@@ -10,12 +10,15 @@ import {
   RefreshControl,
   Modal,
 } from 'react-native';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { supabase } from '@/lib/supabase';
 import { QueueItem, Treatment, Profile, Product } from '@/types/database';
 import { useAuth } from '@/context/AuthContext';
 import { RoleHeader } from '@/components/RoleHeader';
 import { brutalistCard, brutalistButton, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/context/ThemeContext';
+import { buildReceiptHtml, ReceiptData } from '@/lib/receipt';
 
 interface SelesaiQueueItem extends QueueItem {
   customer: Profile | null;
@@ -36,15 +39,15 @@ export default function KasirPaymentScreen() {
   const [queueList, setQueueList] = useState<SelesaiQueueItem[]>([]);
   const [selectedItem, setSelectedItem] = useState<SelesaiQueueItem | null>(null);
   const [metodeBayar, setMetodeBayar] = useState<'tunai' | 'qris'>('tunai');
-  // F2.5: item produk per queue_id + total gabungan
   const [notaItems, setNotaItems] = useState<Record<string, NotaItem[]>>({});
   const [notaTotals, setNotaTotals] = useState<Record<string, number>>({});
-  // F2.6: jual produk walk-in (produk saja)
   const [walkinVisible, setWalkinVisible] = useState(false);
   const [walkinProducts, setWalkinProducts] = useState<Product[]>([]);
   const [walkinQty, setWalkinQty] = useState<Record<string, number>>({});
   const [walkinSubmitting, setWalkinSubmitting] = useState(false);
   const [walkinError, setWalkinError] = useState<string | null>(null);
+  const [lastReceipt, setLastReceipt] = useState<ReceiptData | null>(null);
+  const [receiptBusy, setReceiptBusy] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -201,17 +204,65 @@ export default function KasirPaymentScreen() {
     setErrorMessage(null);
 
     try {
+      const nowIso = new Date().toISOString();
       const { error: updateErr } = await supabase
         .from('queue')
         .update({
           status: 'lunas',
           metode_bayar: metodeBayar,
           kasir_id: user.id,
-          completed_at: new Date().toISOString(),
+          completed_at: nowIso,
         })
         .eq('id', selectedItem.id);
 
       if (updateErr) throw updateErr;
+
+      // F3.4 polish: struk branded A — logo lokal + kasir+barber + alamat + jam + kode + instruksi
+      const items = notaItems[selectedItem.id] || [];
+      const total = notaTotals[selectedItem.id] ?? selectedItem.treatments?.harga ?? 0;
+      let tokoNama: string | null = null;
+      let tokoAlamat: string | null = null;
+      let jamBuka: string | null = null;
+      let jamTutup: string | null = null;
+      let kasirNama: string | null = null;
+      try {
+        const { data: shop } = await supabase
+          .from('barbershop_settings')
+          .select('nama_toko, alamat, jam_buka, jam_tutup')
+          .limit(1)
+          .single();
+        if (shop) {
+          tokoNama = (shop as any).nama_toko || null;
+          tokoAlamat = (shop as any).alamat || null;
+          jamBuka = (shop as any).jam_buka || null;
+          jamTutup = (shop as any).jam_tutup || null;
+        }
+      } catch {}
+      try {
+        const { data: kasirProf } = await supabase.from('profiles').select('nama').eq('id', user.id).single();
+        if (kasirProf) kasirNama = (kasirProf as any).nama || null;
+      } catch {}
+      if (!kasirNama) kasirNama = user.email || 'Kasir';
+      const receipt: ReceiptData = {
+        nomor_antrian: selectedItem.nomor_antrian,
+        customerNama: (selectedItem.customer?.nama || (selectedItem as any).nama_customer || 'Pelanggan') as string,
+        barberNama: selectedItem.barber?.nama || 'Barber Toko',
+        kasirNama,
+        kursiNomor: (selectedItem as any).kursi_nomor ?? null,
+        treatmentNama: selectedItem.treatments?.nama || null,
+        treatmentHarga: selectedItem.treatments?.harga ?? null,
+        items: items.map((it) => ({ nama: it.nama, qty: it.qty, subtotal: it.subtotal })),
+        total,
+        metode: metodeBayar,
+        tanggal: new Date(nowIso).toLocaleString('id-ID'),
+        tokoNama,
+        tokoAlamat,
+        jamBuka,
+        jamTutup,
+        kodeTransaksi: selectedItem.id.slice(0, 8).toUpperCase(),
+        instruksi: (selectedItem as any).instruksi_potongan || null,
+      };
+      setLastReceipt(receipt);
 
       setSelectedItem(null);
       fetchSelesaiQueue();
@@ -220,6 +271,37 @@ export default function KasirPaymentScreen() {
       setErrorMessage(e.message || 'Gagal memproses pembayaran.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleShareReceipt = async () => {
+    if (!lastReceipt || receiptBusy) return;
+    setReceiptBusy(true);
+    try {
+      const html = buildReceiptHtml(lastReceipt);
+      const { uri } = await Print.printToFileAsync({ html });
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Info', `File struk disimpan: ${uri}`);
+        return;
+      }
+      await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Bagikan Struk' });
+    } catch (e: any) {
+      Alert.alert('Gagal', e.message || 'Tidak bisa membuat struk PDF.');
+    } finally {
+      setReceiptBusy(false);
+    }
+  };
+
+  const handlePrintReceipt = async () => {
+    if (!lastReceipt || receiptBusy) return;
+    setReceiptBusy(true);
+    try {
+      const html = buildReceiptHtml(lastReceipt);
+      await Print.printAsync({ html });
+    } catch (e: any) {
+      Alert.alert('Gagal', e.message || 'Tidak bisa mencetak struk.');
+    } finally {
+      setReceiptBusy(false);
     }
   };
 
@@ -277,7 +359,7 @@ export default function KasirPaymentScreen() {
                 </View>
 
                 <Text style={[styles.custName, { color: theme.ink }]}>
-                  👤 {item.customer?.nama || 'Pelanggan'}
+                  👤 {item.customer?.nama || (item as any).nama_customer || 'Pelanggan Walk-in'}
                 </Text>
 
                 <View style={styles.infoRow}>
@@ -286,6 +368,13 @@ export default function KasirPaymentScreen() {
                     {item.barber?.nama || 'Barber Toko'}
                   </Text>
                 </View>
+
+                {(item as any).kursi_nomor != null ? (
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.inkMuted }]}>Kursi:</Text>
+                    <Text style={[styles.infoVal, { color: theme.primary }]}>Kursi {(item as any).kursi_nomor}</Text>
+                  </View>
+                ) : null}
 
                 <View style={styles.infoRow}>
                   <Text style={[styles.infoLabel, { color: theme.inkMuted }]}>Layanan:</Text>
@@ -311,6 +400,31 @@ export default function KasirPaymentScreen() {
             ))}
           </View>
         )}
+
+        {lastReceipt ? (
+          <View style={[styles.receiptBox, brutalistCard(theme as any)]}>
+            <Text style={[styles.receiptTitle, { color: theme.ink }]}>Struk Terakhir — No. A-{String(lastReceipt.nomor_antrian).padStart(2, '0')} • {lastReceipt.kodeTransaksi}</Text>
+            <Text style={[styles.receiptSub, { color: theme.inkMuted }]}>
+              {lastReceipt.customerNama} • {lastReceipt.kursiNomor != null ? `Kursi ${lastReceipt.kursiNomor} • ` : ''}Kasir {lastReceipt.kasirNama || '-'} • {lastReceipt.treatmentNama || 'Produk walk-in'} • {formatRupiah(lastReceipt.total)}
+            </Text>
+            <View style={styles.receiptActions}>
+              <TouchableOpacity
+                style={[brutalistButton(theme as any, 'secondary'), { flex: 1, opacity: receiptBusy ? 0.6 : 1 }]}
+                onPress={handleShareReceipt}
+                disabled={receiptBusy}
+              >
+                <Text style={{ fontWeight: '800', fontSize: 13 }}>{receiptBusy ? '...' : '📤 BAGIKAN PDF'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[brutalistButton(theme as any, 'primary'), { flex: 1, backgroundColor: theme.ink, opacity: receiptBusy ? 0.6 : 1 }]}
+                onPress={handlePrintReceipt}
+                disabled={receiptBusy}
+              >
+                <Text style={[styles.payBtnText, { fontSize: 13 }]}>{receiptBusy ? '...' : '🖨️ CETAK'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
 
       {/* F2.6: Modal jual produk walk-in */}
@@ -400,8 +514,13 @@ export default function KasirPaymentScreen() {
                   No. Antrian: <Text style={{ color: theme.ink, fontWeight: '800' }}>No. {selectedItem.nomor_antrian}</Text>
                 </Text>
                 <Text style={[styles.modalLabel, { color: theme.inkMuted }]}>
-                  Pelanggan: <Text style={{ color: theme.ink, fontWeight: '800' }}>{selectedItem.customer?.nama || 'Pelanggan'}</Text>
+                  Pelanggan: <Text style={{ color: theme.ink, fontWeight: '800' }}>{selectedItem.customer?.nama || (selectedItem as any).nama_customer || 'Pelanggan'}</Text>
                 </Text>
+                {(selectedItem as any).kursi_nomor != null ? (
+                  <Text style={[styles.modalLabel, { color: theme.inkMuted }]}>
+                    Kursi: <Text style={{ color: theme.primary, fontWeight: '800' }}>Kursi {(selectedItem as any).kursi_nomor}</Text> • Barber: <Text style={{ color: theme.ink, fontWeight: '800' }}>{selectedItem.barber?.nama || '-'}</Text>
+                  </Text>
+                ) : null}
                 {selectedItem.treatments ? (
                   <View style={styles.notaLine}>
                     <Text style={[styles.modalLabel, { color: theme.inkMuted }]}>
@@ -524,6 +643,10 @@ const styles = StyleSheet.create({
   metodeText: { fontSize: 14, fontWeight: '800' },
   errorText: { fontSize: 13, fontWeight: '600', marginBottom: 10 },
   modalActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  receiptBox: { padding: 14, marginTop: 16 },
+  receiptTitle: { fontSize: 14, fontWeight: '800' },
+  receiptSub: { fontSize: 13, marginTop: 4, fontWeight: '600' },
+  receiptActions: { flexDirection: 'row', gap: 10, marginTop: 12 },
   walkinRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 10 },
   walkinName: { fontSize: 14, fontWeight: '800' },
   walkinPrice: { fontSize: 13, fontWeight: '800', marginTop: 2 },

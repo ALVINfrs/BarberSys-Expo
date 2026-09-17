@@ -38,9 +38,11 @@ export interface QueueItem {
   id: string;
   nomor_antrian: number;
   user_id: string | null;
+  nama_customer: string | null;
   barber_id: string | null;
   kasir_id: string | null;
   treatment_id: string | null;
+  kursi_nomor: number | null;
   status: QueueStatus;
   instruksi_potongan: string | null;
   rating: number | null;
@@ -66,4 +68,5 @@ export interface BarbershopSettings {
   alamat: string | null;
   jam_buka: string;
   jam_tutup: string;
+  jumlah_kursi: number;
 }
