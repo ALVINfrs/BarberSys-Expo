@@ -36,7 +36,8 @@
     "react-native-url-polyfill": "^4.0.0",
     "react-native-web": "~0.21.0",
     "react-native-worklets": "0.10.1",
-    "tailwindcss": "^3.4.19"
+    "tailwindcss": "^3.4.19",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
@@ -50,7 +51,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "node --no-warnings --experimental-strip-types --test scripts/test-barber-availability.mjs scripts/test-kursi-availability.mjs scripts/test-waktu.mjs scripts/test-queue-load.mjs scripts/test-estimasi.mjs scripts/test-jam-operasional.mjs scripts/test-receipt.mjs scripts/test-tab-bar.mjs"
   },
   "private": true
 }

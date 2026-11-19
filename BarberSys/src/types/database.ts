@@ -52,6 +52,7 @@ export interface QueueItem {
   created_at: string;
   called_at: string | null;
   completed_at: string | null;
+  hold_until: string | null;
 }
 
 export interface QueueProduct {

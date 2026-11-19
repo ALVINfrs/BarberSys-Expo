@@ -20,9 +20,10 @@ import { useAppTheme } from '@/context/ThemeContext';
 interface ProfileFormProps {
   title: string;
   fallbackName: string;
+  footer?: React.ReactNode;
 }
 
-export const ProfileForm: React.FC<ProfileFormProps> = ({ title, fallbackName }) => {
+export const ProfileForm: React.FC<ProfileFormProps> = ({ title, fallbackName, footer }) => {
   const { theme } = useAppTheme();
   const { profile, user, refreshProfile, signOut } = useAuth();
   const router = useRouter();
@@ -190,6 +191,7 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({ title, fallbackName })
             <Text style={styles.logoutText}>KELUAR DARI AKUN</Text>
           </TouchableOpacity>
         </View>
+        {footer}
       </ScrollView>
     </View>
   );

@@ -20,6 +20,12 @@ import { useAuth } from '@/context/AuthContext';
 import { RoleHeader } from '@/components/RoleHeader';
 import { brutalistCard, brutalistButton, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/context/ThemeContext';
+import {
+  describeHoldUntil,
+  formatWIBDate,
+  getHoldRefreshDelayMs,
+  isSameWIBDate,
+} from '@/lib/waktu';
 
 interface ExtendedQueueItem extends QueueItem {
   treatments: Treatment | null;
@@ -77,13 +83,14 @@ export default function StatusAntrianScreen() {
         setCurrentServingNo(null);
       }
 
-      // 3. Fetch total waiting queue count
-      const { count } = await supabase
+      // 3. Fetch total waiting queue count (exclude hold sampai besok)
+      const { data: waitData } = await supabase
         .from('queue')
-        .select('id', { count: 'exact', head: true })
+        .select('id, hold_until')
         .in('status', ['menunggu', 'dipanggil', 'dilayani']);
-
-      setTotalWaitingCount(count || 0);
+      const nowMs = Date.now();
+      const filtered = (waitData as any[] | null)?.filter((r) => !r.hold_until || new Date(r.hold_until).getTime() <= nowMs) || [];
+      setTotalWaitingCount(filtered.length);
 
       // 4. F2.1: tiket lunas terbaru yang belum dirating — hanya jika TIDAK ada
       // antrian aktif dan lunasnya max 24 jam terakhir (abaikan data testing lama)
@@ -135,6 +142,29 @@ export default function StatusAntrianScreen() {
       supabase.removeChannel(channel);
     };
   }, [user]);
+
+  // F4.2/I3: re-evaluasi saat batas hold tiba (maks. polling 60 detik).
+  const activeHoldUntil = (activeQueue as any)?.hold_until as string | null | undefined;
+  useEffect(() => {
+    if (!activeHoldUntil) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    const tick = () => {
+      if (stopped) return;
+      const delay = getHoldRefreshDelayMs([activeHoldUntil]);
+      if (delay == null) return;
+      timer = setTimeout(() => {
+        fetchActiveQueue();
+        tick();
+      }, delay);
+    };
+    tick();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeHoldUntil]);
 
   const getStatusBadgeStyle = (status: QueueStatus) => {
     switch (status) {
@@ -311,16 +341,17 @@ export default function StatusAntrianScreen() {
                   <MaterialIcons name="confirmation-number" size={20} color={theme.primary} />
                   <Text style={[styles.ticketHeaderTitle, { color: theme.ink }]}>TIKET ANDA</Text>
                 </View>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    { backgroundColor: getStatusBadgeStyle(activeQueue.status).bg },
-                  ]}
-                >
-                  <Text style={styles.statusBadgeText}>
-                    {getStatusBadgeStyle(activeQueue.status).label}
-                  </Text>
-                </View>
+                {(() => {
+                  const isHeld = (activeQueue as any).hold_until && new Date((activeQueue as any).hold_until).getTime() > Date.now();
+                  const badge = isHeld
+                    ? { bg: theme.amber, label: 'DITAHAN' }
+                    : getStatusBadgeStyle(activeQueue.status);
+                  return (
+                    <View style={[styles.statusBadge, { backgroundColor: badge.bg }]}>
+                      <Text style={[styles.statusBadgeText, isHeld ? { color: theme.ink } : null]}>{badge.label}</Text>
+                    </View>
+                  );
+                })()}
               </View>
 
               {/* Big Queue Number */}
@@ -329,6 +360,11 @@ export default function StatusAntrianScreen() {
                 <Text style={[styles.bigNumber, Typography.monoLg, { color: theme.ink }]}>
                   {activeQueue.nomor_antrian < 10 ? `A-0${activeQueue.nomor_antrian}` : `A-${activeQueue.nomor_antrian}`}
                 </Text>
+                {!isSameWIBDate(activeQueue.created_at, new Date()) ? (
+                  <Text style={[styles.originText, { color: theme.inkMuted }]}>
+                    DIBUAT {formatWIBDate(activeQueue.created_at).toUpperCase()}
+                  </Text>
+                ) : null}
                 <View style={[styles.estPill, { backgroundColor: theme.surfaceContainerLowest, borderColor: theme.cardBorder }]}>
                   <MaterialIcons name="hourglass-top" size={14} color={theme.secondary} />
                   <Text style={[styles.estText, { color: theme.ink }]}>
@@ -347,6 +383,29 @@ export default function StatusAntrianScreen() {
                   </Text>
                 </Text>
               </View>
+
+              {(activeQueue as any).hold_until && new Date((activeQueue as any).hold_until).getTime() > Date.now() ? (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 8,
+                    borderWidth: 1.5,
+                    borderColor: theme.ink,
+                    backgroundColor: theme.amber,
+                    borderRadius: 6,
+                    padding: 10,
+                    width: '100%',
+                    marginVertical: 8,
+                  }}
+                >
+                  <MaterialIcons name="pause-circle-outline" size={18} color={theme.ink} />
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: theme.ink, flex: 1, lineHeight: 16 }}>
+                    Antrian DITAHAN karena di luar jam operasional, dan baru diproses{' '}
+                    {describeHoldUntil((activeQueue as any).hold_until)}.
+                  </Text>
+                </View>
+              ) : null}
 
               {/* Treatment Info */}
               <View style={styles.infoSection}>
@@ -515,6 +574,7 @@ const styles = StyleSheet.create({
   numberBox: { borderWidth: 2, padding: 16, width: '100%', alignItems: 'center', marginVertical: 8, borderRadius: 8 },
   numberLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 1 },
   bigNumber: { fontSize: 48, fontWeight: '800', marginVertical: 4 },
+  originText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5, marginBottom: 2 },
   estPill: {
     flexDirection: 'row',
     alignItems: 'center',

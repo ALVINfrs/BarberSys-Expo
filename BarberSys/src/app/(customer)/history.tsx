@@ -61,7 +61,7 @@ export default function CustomerHistoryScreen() {
           });
           list.forEach((h) => {
             const prodSum = (itemsMap[h.id] || []).reduce((s, it) => s + it.subtotal, 0);
-            totalsMap[h.id] = (h.treatments?.harga || 0) + prodSum;
+            totalsMap[h.id] = (h.treatments?.harga || 0) + prodSum + (h.tip_amount || 0);
           });
           setNotaItems(itemsMap);
           setNotaTotals(totalsMap);
@@ -177,6 +177,15 @@ export default function CustomerHistoryScreen() {
                     </Text>
                   </View>
                 ))}
+
+                {(item.tip_amount || 0) > 0 ? (
+                  <View style={styles.infoRow}>
+                    <Text style={[styles.infoLabel, { color: theme.inkMuted }]}>Tip</Text>
+                    <Text style={[styles.infoVal, { color: theme.ink }]}>
+                      {formatRupiah(item.tip_amount)}
+                    </Text>
+                  </View>
+                ) : null}
 
                 <View style={[styles.totalRow, { borderTopColor: theme.cardBorder }]}>
                   <Text style={[styles.totalLabel, { color: theme.ink }]}>Total Pembayaran</Text>

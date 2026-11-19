@@ -15,6 +15,7 @@ import { useAuth } from '@/context/AuthContext';
 import { RoleHeader } from '@/components/RoleHeader';
 import { brutalistCard, brutalistButton, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/context/ThemeContext';
+import { startOfDayWIBISO } from '@/lib/waktu';
 
 interface BarberQueueItem extends QueueItem {
   customer: Profile | null;
@@ -60,9 +61,7 @@ export default function BarberQueueScreen() {
 
       // F2.10: ringkasan kerja hari ini (batas hari Asia/Jakarta, PRD 13.2)
       const nowMs = Date.now();
-      const jakartaNow = new Date(nowMs + (7 * 60 + new Date().getTimezoneOffset()) * 60000);
-      jakartaNow.setHours(0, 0, 0, 0);
-      const dayStartIso = new Date(jakartaNow.getTime() - 7 * 60 * 60000).toISOString();
+      const dayStartIso = startOfDayWIBISO();
 
       const { data: todayLunas } = await supabase
         .from('queue')

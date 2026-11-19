@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
@@ -19,6 +20,7 @@ import { RoleHeader } from '@/components/RoleHeader';
 import { brutalistCard, brutalistButton, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/context/ThemeContext';
 import { buildReceiptHtml, ReceiptData } from '@/lib/receipt';
+import { DEFAULT_LOGO_BASE64 } from '@/lib/receipt-logo';
 
 interface SelesaiQueueItem extends QueueItem {
   customer: Profile | null;
@@ -48,6 +50,10 @@ export default function KasirPaymentScreen() {
   const [walkinError, setWalkinError] = useState<string | null>(null);
   const [lastReceipt, setLastReceipt] = useState<ReceiptData | null>(null);
   const [receiptBusy, setReceiptBusy] = useState(false);
+  const [tipAmount, setTipAmount] = useState(0);
+  const [customTip, setCustomTip] = useState('');
+  // null = input custom, angka = chip preset yang aktif
+  const [tipPreset, setTipPreset] = useState<number | null>(0);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -194,6 +200,11 @@ export default function KasirPaymentScreen() {
   const handleOpenPaymentModal = (item: SelesaiQueueItem) => {
     setSelectedItem(item);
     setMetodeBayar('tunai');
+    const existingTip = item.tip_amount || 0;
+    const isPreset = [0, 5000, 10000, 15000].includes(existingTip);
+    setTipAmount(existingTip);
+    setTipPreset(isPreset ? existingTip : null);
+    setCustomTip(isPreset ? '' : String(existingTip));
     setErrorMessage(null);
   };
 
@@ -210,6 +221,7 @@ export default function KasirPaymentScreen() {
         .update({
           status: 'lunas',
           metode_bayar: metodeBayar,
+          tip_amount: tipAmount,
           kasir_id: user.id,
           completed_at: nowIso,
         })
@@ -217,9 +229,10 @@ export default function KasirPaymentScreen() {
 
       if (updateErr) throw updateErr;
 
-      // F3.4 polish: struk branded A — logo lokal + kasir+barber + alamat + jam + kode + instruksi
+      // F3.4 polish: struk branded A — logo lokal + kasir+barber + alamat + jam + kode + instruksi + tip
       const items = notaItems[selectedItem.id] || [];
-      const total = notaTotals[selectedItem.id] ?? selectedItem.treatments?.harga ?? 0;
+      const baseTotal = notaTotals[selectedItem.id] ?? selectedItem.treatments?.harga ?? 0;
+      const total = baseTotal + tipAmount;
       let tokoNama: string | null = null;
       let tokoAlamat: string | null = null;
       let jamBuka: string | null = null;
@@ -253,6 +266,7 @@ export default function KasirPaymentScreen() {
         treatmentHarga: selectedItem.treatments?.harga ?? null,
         items: items.map((it) => ({ nama: it.nama, qty: it.qty, subtotal: it.subtotal })),
         total,
+        tipAmount: tipAmount || null,
         metode: metodeBayar,
         tanggal: new Date(nowIso).toLocaleString('id-ID'),
         tokoNama,
@@ -261,6 +275,7 @@ export default function KasirPaymentScreen() {
         jamTutup,
         kodeTransaksi: selectedItem.id.slice(0, 8).toUpperCase(),
         instruksi: (selectedItem as any).instruksi_potongan || null,
+        logoBase64: DEFAULT_LOGO_BASE64,
       };
       setLastReceipt(receipt);
 
@@ -386,7 +401,7 @@ export default function KasirPaymentScreen() {
                 <View style={[styles.totalRow, { borderTopColor: theme.cardBorder }]}>
                   <Text style={[styles.totalLabel, { color: theme.ink }]}>Total Tagihan:</Text>
                   <Text style={[styles.totalVal, { color: theme.primary }]}>
-                    {formatRupiah(notaTotals[item.id] ?? item.treatments?.harga ?? 0)}
+                    {formatRupiah((notaTotals[item.id] ?? item.treatments?.harga ?? 0) + (item.tip_amount || 0))}
                   </Text>
                 </View>
 
@@ -541,11 +556,52 @@ export default function KasirPaymentScreen() {
                     </Text>
                   </View>
                 ))}
+                {tipAmount > 0 ? (
+                  <View style={styles.notaLine}>
+                    <Text style={[styles.modalLabel, { color: theme.inkMuted }]}>Tip</Text>
+                    <Text style={[styles.notaLineVal, { color: theme.ink }]}>{formatRupiah(tipAmount)}</Text>
+                  </View>
+                ) : null}
                 <Text style={[styles.modalPrice, { color: theme.primary }]}>
-                  Total: {formatRupiah(notaTotals[selectedItem.id] ?? selectedItem.treatments?.harga ?? 0)}
+                  Total: {formatRupiah((notaTotals[selectedItem.id] ?? selectedItem.treatments?.harga ?? 0) + tipAmount)}
                 </Text>
               </View>
 
+              <Text style={[styles.modalLabel, { color: theme.ink, fontWeight: '700', marginBottom: 6 }]}>Tip untuk Barber (tunai, opsional)</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                {[0, 5000, 10000, 15000].map((v) => {
+                  const sel = tipPreset === v;
+                  return (
+                    <TouchableOpacity
+                      key={String(v)}
+                      style={[{ paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1.5, borderRadius: 6, borderColor: sel ? theme.secondary : theme.cardBorder, backgroundColor: sel ? theme.surfaceContainerLow : theme.surface }]}
+                      onPress={() => {
+                        setTipAmount(v);
+                        setTipPreset(v);
+                        setCustomTip('');
+                      }}
+                    >
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: theme.ink }}>{v === 0 ? 'Tanpa Tip' : `Rp ${v.toLocaleString('id-ID')}`}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1.5, borderColor: tipPreset === null ? theme.secondary : theme.cardBorder, borderRadius: 6, paddingHorizontal: 8, backgroundColor: theme.surface }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: theme.inkMuted }}>Custom</Text>
+                  <TextInput
+                    style={{ minWidth: 70, fontSize: 12, fontWeight: '700', color: theme.ink, paddingVertical: 4 }}
+                    placeholder="0"
+                    placeholderTextColor={theme.inkMuted}
+                    keyboardType="numeric"
+                    value={customTip}
+                    onChangeText={(t) => {
+                      const n = t.replace(/[^0-9]/g, '');
+                      setCustomTip(n);
+                      setTipPreset(null);
+                      setTipAmount(n ? parseInt(n, 10) : 0);
+                    }}
+                  />
+                </View>
+              </View>
               <Text style={[styles.metodeTitle, { color: theme.ink }]}>Metode Pembayaran:</Text>
 
               {/* Fase 1–2: hanya TUNAI. QRIS terkunci sampai Fase 6. */}

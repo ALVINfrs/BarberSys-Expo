@@ -1,4 +1,8 @@
-import { DEFAULT_LOGO_BASE64 } from './receipt-logo';
+/**
+ * Struk PDF (F3.4) — modul murni tanpa import runtime supaya bisa diuji
+ * langsung oleh Node (`--experimental-strip-types`). Logo default disuntikkan
+ * pemanggil (payment.tsx) lewat `logoBase64`; tanpa logo, blok gambar absen.
+ */
 
 export function escapeHtml(s: string): string {
   return s
@@ -25,6 +29,7 @@ export interface ReceiptData {
   treatmentHarga?: number | null;
   items: ReceiptLine[];
   total: number;
+  tipAmount?: number | null;
   metode: string;
   tanggal: string;
   tokoNama?: string | null;
@@ -40,8 +45,17 @@ export function formatRupiahReceipt(val: number): string {
   return 'Rp ' + val.toLocaleString('id-ID');
 }
 
+/**
+ * M1 — kolom `time` Postgres datang sebagai "09:00:00"; struk harus
+ * menampilkan "09:00". Null/kosong tetap kosong.
+ */
+export function formatJamStruk(jam: string | null | undefined): string {
+  if (!jam) return '';
+  return String(jam).slice(0, 5);
+}
+
 export function buildReceiptHtml(data: ReceiptData): string {
-  const logoB64 = data.logoBase64 ?? DEFAULT_LOGO_BASE64;
+  const logoB64 = data.logoBase64 ?? null;
   const logoImg = logoB64
     ? `<div style="text-align:center;margin-bottom:12px"><img src="data:image/png;base64,${logoB64}" style="width:96px;height:96px;object-fit:contain" /></div>`
     : '';
@@ -55,12 +69,15 @@ export function buildReceiptHtml(data: ReceiptData): string {
         `<tr><td>${escapeHtml(it.nama)}${it.qty ? ` × ${it.qty}` : ''}</td><td style="text-align:right">${escapeHtml(formatRupiahReceipt(it.subtotal))}</td></tr>`
     )
     .join('');
+  const jamBuka = formatJamStruk(data.jamBuka);
+  const jamTutup = formatJamStruk(data.jamTutup);
   const jamLine =
-    data.jamBuka && data.jamTutup
-      ? `<div class="small">Jam: ${escapeHtml(data.jamBuka)}–${escapeHtml(data.jamTutup)}</div>`
+    jamBuka && jamTutup
+      ? `<div class="small">Jam: ${escapeHtml(jamBuka)}–${escapeHtml(jamTutup)} WIB</div>`
       : '';
   const kasirLine = data.kasirNama ? `<div>Kasir: ${escapeHtml(data.kasirNama)}</div>` : '';
   const kursiLine = data.kursiNomor != null ? `<div>Kursi: <b>Kursi ${escapeHtml(String(data.kursiNomor))}</b></div>` : '';
+  const tipLine = data.tipAmount ? `<tr><td>Tip</td><td style="text-align:right">${escapeHtml(formatRupiahReceipt(data.tipAmount))}</td></tr>` : '';
   const kodeLine = data.kodeTransaksi ? `<div>Kode: <b>${escapeHtml(data.kodeTransaksi)}</b></div>` : '';
   const instruksiBox =
     data.instruksi && data.instruksi.trim()
@@ -95,7 +112,7 @@ ${kursiLine}
 ${kasirLine}
 ${kodeLine}
 </div>
-<table>${treatmentRow}${itemsRows}</table>
+<table>${treatmentRow}${itemsRows}${tipLine}</table>
 ${instruksiBox}
 <div class="total">Total: ${escapeHtml(formatRupiahReceipt(data.total))}</div>
 <div class="footer">Terima kasih — ${escapeHtml(data.tokoNama || 'BarberSys')} • Sampai jumpa lagi!</div>

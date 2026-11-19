@@ -302,15 +302,18 @@ erDiagram
 |---|---|---|
 | id | uuid (PK) | |
 | nomor_antrian | integer | Nomor urut harian |
-| user_id | uuid (FK → profiles) | Pelanggan yang mengambil antrian |
+| user_id | uuid (FK → profiles) | Pelanggan yang mengambil antrian (nullable untuk walk-in) |
+| nama_customer | text | Nama pelanggan walk-in (B11); NULL untuk antrian dari akun Customer |
 | barber_id | uuid (FK → profiles) | Barber yang ditugaskan |
 | kasir_id | uuid (FK → profiles) | Kasir yang memproses |
 | treatment_id | uuid (FK → treatments) | Treatment yang dipilih |
+| kursi_nomor | smallint | Nomor kursi 1..`barbershop_settings.jumlah_kursi` (B13); NULL sampai Kasir memanggil |
+| hold_until | timestamptz | F4.2/B14: antrian di luar jam operasional ditahan sampai jam buka berikutnya (WIB); NULL = tidak ditahan |
 | status | text | `menunggu` / `dipanggil` / `dilayani` / `selesai` / `lunas` / `dibatalkan` |
 | instruksi_potongan | text | Catatan/permintaan khusus dari Customer untuk Barber (opsional, teks bebas) |
 | rating | integer | 1–5, nullable sampai User memberi rating |
 | komentar | text | Opsional |
-| tip_amount | integer | Nominal tip, default 0 |
+| tip_amount | integer | Nominal tip, default 0; CHECK 0..1.000.000 |
 | metode_bayar | text | `tunai` / `qris` (dicatat saja, bukan transaksi elektronik nyata) |
 | created_at | timestamptz | Waktu antrian diambil |
 | called_at | timestamptz | Waktu dipanggil Kasir |
@@ -335,6 +338,7 @@ erDiagram
 | alamat | text | Alamat toko |
 | jam_buka | time | Jam mulai operasional |
 | jam_tutup | time | Jam tutup operasional |
+| jumlah_kursi | integer | Jumlah kursi aktif (default 4), dipakai validasi `queue.kursi_nomor` (B13) |
 
 ### 7.3 Ringkasan Kebijakan Row Level Security (RLS)
 
@@ -345,6 +349,8 @@ erDiagram
 | `queue` | User hanya bisa melihat & membuat baris miliknya sendiri; Barber hanya bisa melihat/mengubah baris yang `barber_id`-nya sama dengan dirinya; Kasir & Admin bisa melihat/mengubah semua baris |
 | `queue_products` | Mengikuti hak akses baris `queue` induknya |
 | `barbershop_settings` | Semua role bisa membaca; hanya Admin bisa mengubah |
+
+> **Catatan Fase 4 (review C1/I5):** customer tidak boleh membaca baris `queue` milik orang lain, sehingga estimasi tunggu (F4.3) diambil lewat RPC agregat `queue_load_stats()` (`SECURITY DEFINER`, hanya mengembalikan `barber_id`, jumlah antrian, total menit). Trigger `queue_guard_insert`/`queue_guard_update` menolak customer yang mencoba memalsukan `status`, `tip_amount`, `kursi_nomor`, atau `hold_until` di luar alur normal (batal antrian & rating tetap diizinkan).
 
 ### 7.4 Supabase Storage — Bucket Foto
 
@@ -600,15 +606,15 @@ stateDiagram-v2
 
 Fitur dikerjakan berurutan per fase. Fase 1 adalah **MVP wajib** yang harus berfungsi penuh; Fase 2–6 adalah **fitur plus** yang dikerjakan sesuai waktu yang tersisa, tanpa mengganggu stabilitas MVP.
 
-> **Status per 14 September 2026**: Fase 0 dan Fase 1 sudah **selesai diimplementasikan**. Perubahan pada layar-layar Fase 1 mulai titik ini hanya boleh berupa perluasan non-breaking (menambah field/tab baru) sebagaimana dirinci di Bagian 13.2 dst — bukan membangun ulang struktur yang sudah ada, sesuai Aturan Kerja Bagian 19.
+> **Status per 18 November 2026**: Fase 0–4 sudah **selesai diimplementasikan**. Perubahan pada layar-layar Fase 1 mulai titik ini hanya boleh berupa perluasan non-breaking (menambah field/tab baru) sebagaimana dirinci di Bagian 13.2 dst — bukan membangun ulang struktur yang sudah ada, sesuai Aturan Kerja Bagian 19.
 
 | Fase | Fokus | Status |
 |---|---|---|
 | **Fase 0** | Fondasi: setup project, database, auth, role | ✅ Selesai |
 | **Fase 1** | MVP: alur inti antrian dari ambil sampai riwayat | ✅ Selesai |
-| **Fase 2** | Rating & Komentar, Produk & Perawatan, Instruksi Potongan, Profil & Foto (semua role), Foto Treatment, Statistik Kerja Barber, Kirim Tiket | Plus (prioritas tinggi) |
-| **Fase 3** | Status Barber otomatis, Kebijakan Cancel, Cetak Struk, Walk-in Customer | Plus |
-| **Fase 4** | Tip, Jam Operasional, Estimasi Waktu Tunggu, Export Laporan, Admin Dashboard Ringkasan, Kasir Dashboard Ringkasan | Plus |
+| **Fase 2** | Rating & Komentar, Produk & Perawatan, Instruksi Potongan, Profil & Foto (semua role), Foto Treatment, Statistik Kerja Barber, Kirim Tiket | ✅ Selesai |
+| **Fase 3** | Status Barber otomatis, Kebijakan Cancel, Cetak Struk, Walk-in Customer | ✅ Selesai |
+| **Fase 4** | Tip, Jam Operasional, Estimasi Waktu Tunggu, Export Laporan, Admin Dashboard Ringkasan, Kasir Dashboard Ringkasan | 🟡 Selesai diimplementasikan (18 Nov 2026) — menunggu uji manual di HP |
 | **Fase 5** | Display TV + TTS, Push Notification | Plus (stretch) |
 | **Fase 6** | Simulasi Pembayaran QRIS (Dummy) | Plus (paling akhir) |
 
@@ -850,7 +856,7 @@ Fase 1 dinyatakan **selesai** hanya jika seluruh poin berikut terpenuhi — buka
 
 ### FASE 4 — Tip, Jam Operasional, Estimasi, Laporan & Dashboard
 - F4.1 User dapat memberi Tip; Kasir dapat mencatat Tip tunai.
-- F4.2 Admin mengatur Jam Operasional; Ambil Antrian ditolak di luar jam operasional.
+- F4.2 Admin mengatur Jam Operasional; Ambil Antrian **ditahan** (bukan ditolak) di luar jam operasional: `queue.status` tetap `menunggu`, `queue.hold_until` diisi jam buka berikutnya (WIB), dan antrian baru diproses saat jam buka. Lihat B14.
 - F4.3 Estimasi Waktu Tunggu ditampilkan saat memilih Barber.
 - F4.4 Admin dapat melihat dan mengekspor Laporan (PDF/Excel).
 - F4.5 **Admin Dashboard Ringkasan**: kartu statistik Omset Hari Ini, Tiket Selesai Hari Ini, Rating Kepuasan rata-rata, dan Jumlah Barber Aktif dari total Barber terdaftar — tampil di layar utama Admin.
@@ -1079,6 +1085,8 @@ Tabel ini adalah tempat menampung **semua temuan, kekurangan, dan ide tambahan**
 | B12 | Fase 3 | Logo struk masih hardcode asset lokal; belum bisa diganti Admin via `barbershop_settings.logo_url` | Tambah kolom `barbershop_settings.logo_url text null` + upload ke bucket `settings` + UI Admin; struk pakai `logo_url` bila ada fallback lokal | Rendah | Belum ditinjau |
 | B13 | Fase 3 | Kursi dinamis belum ada di DB (PRD tidak nyebut kursi, tapi butuh UX `Kursi 1..N` dipilih Kasir pas PANGGIL + tampil di customer/barber/nota) | Opsi 1: `queue.kursi_nomor smallint null` + `barbershop_settings.jumlah_kursi default 4` + trigger cegah double-book `dipanggil/dilayani` | Sedang | Selesai |
 | B8 | Fase 1 | `npx tsc --noEmit` gagal di file sisa template (app-tabs, themed-view, collapsible, dsb. merujuk API tema lama `Colors`/`ThemeColor`) — pre-existing, di luar file Fase 1 | Rapikan/hapus komponen tak terpakai atau selaraskan ke token baru; tidak blokir runtime Expo | Rendah | Belum ditinjau |
+| B14 | Fase 4 | PRD F4.2 menyebut "Ambil Antrian ditolak di luar jam operasional"; keputusan produk: antrian **ditahan** (hold) sampai jam buka berikutnya | Gate di customer `new.tsx` + `queue.hold_until` + filter Kasir + badge DITAHAN + Admin editor jam operasional | Tinggi | Selesai |
+| B15 | Fase 4 | Dependency baru `xlsx@0.18.5` untuk ekspor laporan (F4.4) terkena CVE-2023-30533 (prototype pollution saat *membaca* file) dan CVE-2024-22363 (ReDoS). Aplikasi hanya memakai **writer** dengan data internal (tanpa impor file eksternal) | Catat sebagai deviasi dependency di laporan; opsi jangka panjang: ganti ke `exceljs` atau `xlsx` versi berbayar/terpelihara. Belum dikerjakan | Rendah | Disetujui, menunggu jadwal (advisory tercatat) |
 
 **Keterangan kolom:**
 - **Fase Asal**: fase di mana temuan ini muncul (mis. "Fase 1").

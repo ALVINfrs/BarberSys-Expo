@@ -19,6 +19,12 @@ import { RoleHeader } from '@/components/RoleHeader';
 import { brutalistCard, brutalistButton, Typography } from '@/constants/theme';
 import { useAppTheme } from '@/context/ThemeContext';
 import { filterAvailableBarbers } from '@/lib/barber-availability';
+import {
+  formatWIBDate,
+  getHoldRefreshDelayMs,
+  isSameWIBDate,
+  startOfDayWIBISO,
+} from '@/lib/waktu';
 
 interface KasirQueueItem extends QueueItem {
   customer: Profile | null;
@@ -34,6 +40,7 @@ export default function KasirQueueDashboard() {
   const [queueList, setQueueList] = useState<KasirQueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [stats, setStats] = useState({ menunggu: 0, dilayani: 0, siapBayar: 0, omzet: 0 });
   const [walkinVisible, setWalkinVisible] = useState(false);
   const [treatments, setTreatments] = useState<Treatment[]>([]);
   const [barbers, setBarbers] = useState<Profile[]>([]);
@@ -42,20 +49,54 @@ export default function KasirQueueDashboard() {
   const [walkinBarberId, setWalkinBarberId] = useState<string | null>(null);
   const [walkinSubmitting, setWalkinSubmitting] = useState(false);
   const [walkinError, setWalkinError] = useState<string | null>(null);
+  const [nextHoldUntil, setNextHoldUntil] = useState<string | null>(null);
 
+  const fetchStats = async () => {
+    try {
+      const dayStartIso = startOfDayWIBISO();
+      const nowIso = new Date().toISOString();
+      const { count: cMenunggu } = await supabase.from('queue').select('id', { count: 'exact', head: true }).eq('status', 'menunggu').or(`hold_until.is.null,hold_until.lte.${nowIso}`);
+      const { count: cDilayani } = await supabase.from('queue').select('id', { count: 'exact', head: true }).eq('status', 'dilayani');
+      const { count: cSiap } = await supabase.from('queue').select('id', { count: 'exact', head: true }).eq('status', 'selesai');
+      const { data: lunas } = await supabase.from('queue').select('id, tip_amount, treatments(harga)').eq('status', 'lunas').gte('completed_at', dayStartIso);
+      let omzet = 0;
+      if (lunas && (lunas as any[]).length) {
+        const ids = (lunas as any[]).map((q) => q.id);
+        const { data: qp } = await supabase.from('queue_products').select('queue_id, subtotal').in('queue_id', ids);
+        const map: Record<string, number> = {};
+        ((qp as any[]) || []).forEach((r) => { map[r.queue_id] = (map[r.queue_id] || 0) + (r.subtotal || 0); });
+        (lunas as any[]).forEach((q) => { omzet += (q.treatments?.harga || 0) + (map[q.id] || 0) + (q.tip_amount || 0); });
+      }
+      setStats({ menunggu: cMenunggu || 0, dilayani: cDilayani || 0, siapBayar: cSiap || 0, omzet });
+    } catch {}
+  };
   const fetchQueue = async () => {
     try {
+      const nowIso = new Date().toISOString();
       const { data, error } = await supabase
         .from('queue')
         .select('*, customer:profiles!queue_user_id_fkey(*), treatments(*), barber:profiles!queue_barber_id_fkey(*)')
         .eq('status', 'menunggu')
-        .order('nomor_antrian', { ascending: true });
+        .or(`hold_until.is.null,hold_until.lte.${nowIso}`)
+        .order('created_at', { ascending: true });
 
       if (error) {
         console.error('Error fetching kasir queue:', error.message);
       } else {
         setQueueList((data as unknown as KasirQueueItem[]) || []);
       }
+
+      // I3: jadwalkan refresh saat antrian hold berikutnya jatuh tempo.
+      const { data: nextHold } = await supabase
+        .from('queue')
+        .select('hold_until')
+        .eq('status', 'menunggu')
+        .gt('hold_until', nowIso)
+        .order('hold_until', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      setNextHoldUntil(((nextHold as any)?.hold_until as string) || null);
+      fetchStats();
     } catch (e) {
       console.error('Exception fetching queue:', e);
     } finally {
@@ -151,6 +192,31 @@ export default function KasirQueueDashboard() {
     };
   }, []);
 
+  // F4.2/I3: antrian hold muncul otomatis saat jam buka tiba.
+  useEffect(() => {
+    if (!nextHoldUntil) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+    const tick = () => {
+      if (stopped) return;
+      const delay = getHoldRefreshDelayMs([nextHoldUntil]);
+      if (delay == null) {
+        fetchQueue();
+        return;
+      }
+      timer = setTimeout(() => {
+        fetchQueue();
+        tick();
+      }, delay);
+    };
+    tick();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nextHoldUntil]);
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchQueue();
@@ -172,6 +238,16 @@ export default function KasirQueueDashboard() {
         contentContainerStyle={styles.container}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
+        <View style={[styles.headerStats, { gap: 8 }]}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={[styles.statCard, brutalistCard(theme as any), { flex: 1 }]}><Text style={[styles.statLabel, { color: theme.inkMuted }]}>Menunggu</Text><Text style={[styles.statVal, { color: theme.ink }]}>{stats.menunggu}</Text></View>
+            <View style={[styles.statCard, brutalistCard(theme as any), { flex: 1 }]}><Text style={[styles.statLabel, { color: theme.inkMuted }]}>Dilayani</Text><Text style={[styles.statVal, { color: theme.ink }]}>{stats.dilayani}</Text></View>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={[styles.statCard, brutalistCard(theme as any), { flex: 1 }]}><Text style={[styles.statLabel, { color: theme.inkMuted }]}>Siap Bayar</Text><Text style={[styles.statVal, { color: theme.ink }]}>{stats.siapBayar}</Text></View>
+            <View style={[styles.statCard, brutalistCard(theme as any), { flex: 1 }]}><Text style={[styles.statLabel, { color: theme.inkMuted }]}>Omzet Hari Ini</Text><Text style={[styles.statVal, { color: theme.primary }]}>Rp {stats.omzet.toLocaleString('id-ID')}</Text></View>
+          </View>
+        </View>
         <View style={styles.introBox}>
           <Text style={[styles.heading, { color: theme.ink }]}>Daftar Antrian Menunggu</Text>
           <Text style={[styles.subheading, { color: theme.inkMuted }]}>
@@ -217,6 +293,11 @@ export default function KasirQueueDashboard() {
                 <Text style={[styles.custName, { color: theme.ink }]}>
                   👤 {item.customer?.nama || (item as any).nama_customer || 'Pelanggan Walk-in'}
                 </Text>
+                {!isSameWIBDate(item.created_at, new Date()) ? (
+                  <Text style={[styles.originText, { color: theme.inkMuted }]}>
+                    DIBUAT {formatWIBDate(item.created_at).toUpperCase()} • NOMOR DARI HARI ITU
+                  </Text>
+                ) : null}
 
                 <View style={styles.infoRow}>
                   <Text style={[styles.infoLabel, { color: theme.inkMuted }]}>Layanan:</Text>
@@ -340,10 +421,15 @@ const styles = StyleSheet.create({
   statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 },
   statusBadgeText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   custName: { fontSize: 17, fontWeight: '800', marginBottom: 8 },
+  originText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.4, marginTop: -4, marginBottom: 8 },
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   infoLabel: { fontSize: 13 },
   infoVal: { fontSize: 13, fontWeight: '700' },
   callBtn: { marginTop: 14, paddingVertical: 12 },
+  headerStats: { marginBottom: 12 },
+  statCard: { padding: 10, alignItems: 'center' },
+  statLabel: { fontSize: 11, fontWeight: '700' },
+  statVal: { fontSize: 16, fontWeight: '800', marginTop: 2 },
   callBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalCard: { width: '100%', maxWidth: 380, padding: 16, maxHeight: '85%' },

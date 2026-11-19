@@ -18,6 +18,10 @@ import { RoleHeader } from '@/components/RoleHeader';
 import { brutalistCard, brutalistButton } from '@/constants/theme';
 import { useAppTheme } from '@/context/ThemeContext';
 import { filterAvailableBarbers, isSelectedBarberStillAvailable } from '@/lib/barber-availability';
+import { isOutsideJam, getNextJamBukaISO } from '@/lib/jam-operasional';
+import { computeGlobalEstimate } from '@/lib/estimasi';
+import { mapQueueLoadStats, QueueLoadRow } from '@/lib/queue-load';
+import { describeHoldUntil, formatJamHHMM } from '@/lib/waktu';
 
 export default function AmbilAntrianScreen() {
   const { theme } = useAppTheme();
@@ -31,6 +35,8 @@ export default function AmbilAntrianScreen() {
   const [selectedTreatment, setSelectedTreatment] = useState<Treatment | null>(null);
   const [selectedBarberId, setSelectedBarberId] = useState<string | null>(null);
   const [qtyMap, setQtyMap] = useState<Record<string, number>>({});
+  const [tipAmount, setTipAmount] = useState(0);
+  const [customTip, setCustomTip] = useState('');
   // F2.7: instruksi potongan opsional
   const [instruksi, setInstruksi] = useState('');
   const [instruksiFocused, setInstruksiFocused] = useState(false);
@@ -38,6 +44,8 @@ export default function AmbilAntrianScreen() {
   const [barberRatings, setBarberRatings] = useState<Record<string, { avg: number; count: number }>>({});
   // Kursi 7 polish: beban & estimasi per barber {count, totalMenit}
   const [barberLoad, setBarberLoad] = useState<Record<string, { count: number; totalMenit: number }>>({});
+  const [jamBuka, setJamBuka] = useState<string | null>(null);
+  const [jamTutup, setJamTutup] = useState<string | null>(null);
 
   const [loadingData, setLoadingData] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -72,24 +80,9 @@ export default function AmbilAntrianScreen() {
         });
         setBarberRatings(avgMap);
       }
-      // Beban & estimasi per barber (menunggu+dipanggil+dilayani)
-      const { data: loadData2 } = await supabase
-        .from('queue')
-        .select('barber_id, treatments(durasi_menit)')
-        .in('status', ['menunggu', 'dipanggil', 'dilayani'])
-        .not('barber_id', 'is', null);
-      if (loadData2) {
-        const m: Record<string, { count: number; totalMenit: number }> = {};
-        ((loadData2 as any[]) || []).forEach((r) => {
-          const bid = r.barber_id;
-          if (!bid) return;
-          const cur = m[bid] || { count: 0, totalMenit: 0 };
-          cur.count += 1;
-          cur.totalMenit += r.treatments?.durasi_menit ?? 30;
-          m[bid] = cur;
-        });
-        setBarberLoad(m);
-      }
+      // F4.3: beban agregat via RPC — customer tidak bisa membaca queue orang lain (RLS)
+      const { data: loadData2 } = await supabase.rpc('queue_load_stats');
+      setBarberLoad(mapQueueLoadStats(loadData2 as QueueLoadRow[] | null));
     } catch (e: any) {
       console.error('Error refreshing barbers:', e);
     }
@@ -126,6 +119,11 @@ export default function AmbilAntrianScreen() {
       if (barbErr) throw barbErr;
       const barbList = (barbData as Profile[]) || [];
       setBarbers(barbList);
+      const { data: jamData } = await supabase.from('barbershop_settings').select('jam_buka,jam_tutup').limit(1).single();
+      if (jamData) {
+        setJamBuka(formatJamHHMM((jamData as any).jam_buka));
+        setJamTutup(formatJamHHMM((jamData as any).jam_tutup));
+      }
 
       const { data: rateData } = await supabase.rpc('barber_rating_stats');
       if (rateData) {
@@ -136,23 +134,9 @@ export default function AmbilAntrianScreen() {
         });
         setBarberRatings(avgMap);
       }
-      const { data: loadQ } = await supabase
-        .from('queue')
-        .select('barber_id, treatments(durasi_menit)')
-        .in('status', ['menunggu', 'dipanggil', 'dilayani'])
-        .not('barber_id', 'is', null);
-      if (loadQ) {
-        const m: Record<string, { count: number; totalMenit: number }> = {};
-        ((loadQ as any[]) || []).forEach((r) => {
-          const bid = r.barber_id;
-          if (!bid) return;
-          const cur = m[bid] || { count: 0, totalMenit: 0 };
-          cur.count += 1;
-          cur.totalMenit += r.treatments?.durasi_menit ?? 30;
-          m[bid] = cur;
-        });
-        setBarberLoad(m);
-      }
+      // F4.3: beban agregat via RPC — customer tidak bisa membaca queue orang lain (RLS)
+      const { data: loadQ } = await supabase.rpc('queue_load_stats');
+      setBarberLoad(mapQueueLoadStats(loadQ as QueueLoadRow[] | null));
 
       const { data: prodData, error: prodErr } = await supabase
         .from('products')
@@ -209,7 +193,14 @@ export default function AmbilAntrianScreen() {
     0
   );
 
-  const grandTotal = (selectedTreatment?.harga || 0) + productsTotal;
+  const grandTotal = (selectedTreatment?.harga || 0) + productsTotal + tipAmount;
+
+  // F4.3: estimasi global untuk opsi "Siapa Saja" (rata-rata beban barber tersedia)
+  const availableBarbers = filterAvailableBarbers(barbers);
+  const globalEstimate = computeGlobalEstimate(
+    availableBarbers.map((b) => b.id),
+    barberLoad
+  );
 
   const handleAmbilAntrian = async () => {
     if (!selectedTreatment || !user) {
@@ -253,6 +244,23 @@ export default function AmbilAntrianScreen() {
         return;
       }
 
+      // F4.2 Hold: cek jam operasional WIB
+      let holdUntil: string | null = null;
+      try {
+        let jb = jamBuka;
+        let jt = jamTutup;
+        if (!jb || !jt) {
+          const { data: jd } = await supabase.from('barbershop_settings').select('jam_buka,jam_tutup').limit(1).single();
+          jb = (jd as any)?.jam_buka || jb;
+          jt = (jd as any)?.jam_tutup || jt;
+        }
+        if (jb && jt) {
+          if (isOutsideJam(new Date(), jb, jt)) {
+            holdUntil = getNextJamBukaISO(jb);
+          }
+        }
+      } catch {}
+
       // Insert new queue row
       const { data: newQueue, error: insertErr } = await supabase
         .from('queue')
@@ -262,6 +270,8 @@ export default function AmbilAntrianScreen() {
           barber_id: selectedBarberId, // null means "Siapa saja"
           status: 'menunggu',
           instruksi_potongan: instruksi.trim() || null, // F2.7
+          hold_until: holdUntil,
+          tip_amount: tipAmount,
         })
         .select()
         .single();
@@ -396,6 +406,7 @@ export default function AmbilAntrianScreen() {
                     <Text style={[styles.barberName, { color: theme.ink }]}>Siapa Saja</Text>
                     <Text style={[styles.barberSub, { color: theme.primary, fontWeight: '700' }]}>
                       Rekomendasi: Giliran Paling Cepat
+                      {globalEstimate > 0 ? ` · ±${globalEstimate} menit` : ''}
                     </Text>
                   </View>
                 </View>
@@ -408,7 +419,7 @@ export default function AmbilAntrianScreen() {
               </TouchableOpacity>
 
               {/* F3.2: hanya barber tersedia — istirahat disembunyikan (PRD F3.2) */}
-              {filterAvailableBarbers(barbers).map((b) => {
+              {availableBarbers.map((b) => {
                 const isSelected = selectedBarberId === b.id;
                 const load = barberLoad[b.id] || { count: 0, totalMenit: 0 };
                 const badge =
@@ -574,15 +585,80 @@ export default function AmbilAntrianScreen() {
                     <Text style={[styles.summaryLabel, { color: theme.inkMuted }]}>Estimasi Dipanggil</Text>
                     <Text style={[styles.summaryEst, { color: theme.ink }]}>
                       {(() => {
-                        if (selectedBarberId && barberLoad[selectedBarberId]) {
-                          const m = barberLoad[selectedBarberId].totalMenit;
-                          return `± ${m} Menit`;
-                        }
-                        return '± 10 Menit';
+                        const menit = selectedBarberId
+                          ? barberLoad[selectedBarberId]?.totalMenit || 0
+                          : globalEstimate;
+                        return menit > 0 ? `± ${menit} Menit` : 'Tersedia';
                       })()}
                     </Text>
                   </View>
                 </View>
+
+                {/* Tip B: 5K | 10K | 15K | Custom */}
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={[styles.summaryLabel, { color: theme.ink }]}>Tip untuk Barber (opsional)</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 }}>
+                    {[0, 5000, 10000, 15000].map((v) => {
+                      const sel = tipAmount === v && customTip === '';
+                      return (
+                        <TouchableOpacity
+                          key={String(v)}
+                          style={[
+                            { paddingHorizontal: 12, paddingVertical: 6, borderWidth: 1.5, borderRadius: 6, borderColor: sel ? theme.primary : theme.cardBorder, backgroundColor: sel ? theme.surfaceContainerLow : theme.surface },
+                          ]}
+                          onPress={() => {
+                            setTipAmount(v);
+                            setCustomTip('');
+                          }}
+                        >
+                          <Text style={[ { fontSize: 12, fontWeight: '700', color: theme.ink }]}>{v === 0 ? 'Tanpa Tip' : `Rp ${v.toLocaleString('id-ID')}`}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1.5, borderColor: customTip !== '' ? theme.primary : theme.cardBorder, borderRadius: 6, paddingHorizontal: 8, backgroundColor: theme.surface }}>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: theme.inkMuted }}>Custom</Text>
+                      <TextInput
+                        style={{ minWidth: 70, fontSize: 12, fontWeight: '700', color: theme.ink, paddingVertical: 4 }}
+                        placeholder="0"
+                        placeholderTextColor={theme.inkMuted}
+                        keyboardType="numeric"
+                        value={customTip}
+                        onChangeText={(t) => {
+                          const n = t.replace(/[^0-9]/g, '');
+                          setCustomTip(n);
+                          setTipAmount(n ? parseInt(n, 10) : 0);
+                        }}
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                {(() => {
+                  if (!jamBuka || !jamTutup) return null;
+                  if (!isOutsideJam(new Date(), jamBuka, jamTutup)) return null;
+                  const holdIso = getNextJamBukaISO(jamBuka);
+                  return (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 8,
+                        borderWidth: 1.5,
+                        borderColor: theme.ink,
+                        backgroundColor: theme.amber,
+                        borderRadius: 6,
+                        padding: 10,
+                        marginBottom: 12,
+                      }}
+                    >
+                      <MaterialIcons name="pause-circle-outline" size={18} color={theme.ink} />
+                      <Text style={{ fontSize: 12, fontWeight: '700', flex: 1, lineHeight: 16, color: theme.ink }}>
+                        Di luar jam operasional {jamBuka}–{jamTutup} WIB. Antrian DITAHAN dan baru
+                        diproses {describeHoldUntil(holdIso)}. Tetap ambil?
+                      </Text>
+                    </View>
+                  );
+                })()}
 
                 {(() => {
                   const selLoad = selectedBarberId ? barberLoad[selectedBarberId] : null;

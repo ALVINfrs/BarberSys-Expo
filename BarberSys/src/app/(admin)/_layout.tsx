@@ -2,9 +2,13 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAppTheme } from '@/context/ThemeContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getTabBarMetrics } from '@/lib/tab-bar';
 
 export default function AdminLayout() {
   const { theme } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const tabBar = getTabBarMetrics(insets.bottom);
 
   return (
     <Tabs
@@ -14,9 +18,9 @@ export default function AdminLayout() {
           backgroundColor: theme.surface,
           borderTopWidth: 2,
           borderTopColor: theme.cardBorder,
-          height: 64,
-          paddingTop: 6,
-          paddingBottom: 8,
+          height: tabBar.height,
+          paddingTop: tabBar.paddingTop,
+          paddingBottom: tabBar.paddingBottom,
         },
         tabBarActiveTintColor: theme.primary,
         tabBarInactiveTintColor: theme.inkMuted,

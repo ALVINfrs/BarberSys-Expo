@@ -95,12 +95,14 @@ export default function KasirCallScreen() {
       if (avail.length > 0) setSelectedKursi(avail[0]);
       else setSelectedKursi(null);
 
-      // 4. Beban & estimasi per barber (samain customer new.tsx)
+      // 4. Beban & estimasi per barber (exclude hold, samain customer)
+      const nowIso2 = new Date().toISOString();
       const { data: loadQ } = await supabase
         .from('queue')
-        .select('barber_id, treatments(durasi_menit)')
+        .select('barber_id, treatments(durasi_menit), hold_until')
         .in('status', ['menunggu', 'dipanggil', 'dilayani'])
-        .not('barber_id', 'is', null);
+        .not('barber_id', 'is', null)
+        .or(`hold_until.is.null,hold_until.lte.${nowIso2}`);
       if (loadQ) {
         const m: Record<string, { count: number; totalMenit: number }> = {};
         ((loadQ as any[]) || []).forEach((r) => {
