@@ -329,6 +329,20 @@ erDiagram
 | qty | integer | Jumlah dibeli |
 | subtotal | integer | harga produk × qty (dihitung saat insert, bukan formula tersimpan) |
 
+**`queue_display`** — proyeksi publik baris `queue` untuk layar Display TV (B16). Hanya berisi kolom aman; **tanpa** nama customer, nomor HP, `user_id`, treatment, tip, atau metode bayar.
+
+| Kolom | Tipe | Keterangan |
+|---|---|---|
+| queue_id | uuid (PK, FK → queue) | Satu baris per antrian aktif |
+| nomor_antrian | integer | Nomor urut harian |
+| status | text | Hanya `menunggu` / `dipanggil` / `dilayani` (status final menghapus baris) |
+| hold_until | timestamptz | Disalin dari `queue`; baris ditahan tidak ditampilkan sampai waktunya lewat |
+| barber_nama | text | Nama barber tujuan (bukan data pribadi customer) |
+| kursi_nomor | smallint | Kursi tujuan |
+| created_at | timestamptz | Urutan antrian berikutnya |
+| called_at | timestamptz | Waktu dipanggil (dasar pengumuman TTS) |
+| updated_at | timestamptz | Waktu sinkron terakhir |
+
 **`barbershop_settings`** — konfigurasi umum (1 baris data)
 
 | Kolom | Tipe | Keterangan |
@@ -348,6 +362,7 @@ erDiagram
 | `treatments`, `products` | Semua role terautentikasi bisa membaca (`SELECT`); hanya Admin yang bisa `INSERT`/`UPDATE`/`DELETE` |
 | `queue` | User hanya bisa melihat & membuat baris miliknya sendiri; Barber hanya bisa melihat/mengubah baris yang `barber_id`-nya sama dengan dirinya; Kasir & Admin bisa melihat/mengubah semua baris |
 | `queue_products` | Mengikuti hak akses baris `queue` induknya |
+| `queue_display` | `anon` & `authenticated` hanya bisa `SELECT` (kolom aman untuk Display TV); tidak ada policy tulis — sinkronisasi hanya lewat trigger `SECURITY DEFINER` |
 | `barbershop_settings` | Semua role bisa membaca; hanya Admin bisa mengubah |
 
 > **Catatan Fase 4 (review C1/I5):** customer tidak boleh membaca baris `queue` milik orang lain, sehingga estimasi tunggu (F4.3) diambil lewat RPC agregat `queue_load_stats()` (`SECURITY DEFINER`, hanya mengembalikan `barber_id`, jumlah antrian, total menit). Trigger `queue_guard_insert`/`queue_guard_update` menolak customer yang mencoba memalsukan `status`, `tip_amount`, `kursi_nomor`, atau `hold_until` di luar alur normal (batal antrian & rating tetap diizinkan).
@@ -863,9 +878,9 @@ Fase 1 dinyatakan **selesai** hanya jika seluruh poin berikut terpenuhi — buka
 - F4.6 **Kasir Dashboard Ringkasan**: kartu statistik jumlah antrian per status (Menunggu/Dilayani/Siap Bayar) dan Omzet Hari Ini — tampil di layar utama Kasir.
 
 ### FASE 5 — Display TV & Notifikasi (Stretch)
-- F5.1 Halaman web publik menampilkan nomor antrian yang dipanggil + barber tujuan (Supabase Realtime).
-- F5.2 Pengumuman suara otomatis (Web Speech API, `lang: id-ID`) saat status berubah menjadi `dipanggil`.
-- F5.3 Push notification ke User saat antriannya mendekati giliran/dipanggil (Edge Function + Expo Push API).
+- F5.1 Halaman web publik `/display` menampilkan nomor antrian yang dipanggil + barber + kursi, 5 antrian berikutnya, dan jumlah menunggu. Data dibaca dari tabel bayangan `queue_display` (B16) lewat Supabase Realtime (B18), dengan cache snapshot terakhir saat koneksi putus. Layar selalu dark mode sesuai `design.md` §8.
+- F5.2 Pengumuman suara otomatis (Web Speech API, `lang: id-ID`) saat status berubah menjadi `dipanggil`, diulang **2x**, dengan dedupe per `queue_id + called_at`. Tombol "Aktifkan Suara" sekali klik adalah pengecualian teknis kebijakan autoplay browser (B19).
+- F5.3 Notifikasi lokal ke User saat antriannya **sisa 1** atau **dipanggil** memakai `expo-notifications` (berjalan selama proses app hidup; Expo Go). Remote push (push token + Edge Function + Expo Push API) **ditunda** ke fase akhir bersama Fase 6 (B17). Posisi antrian dihitung lewat RPC `queue_my_status()` (`SECURITY DEFINER`) karena RLS `queue` tidak mengizinkan customer melihat baris orang lain.
 
 ### FASE 6 — Simulasi Pembayaran QRIS (Dummy, Paling Akhir)
 - F6.1 Saat memproses pembayaran, Kasir dapat memilih metode **QRIS** (selain Tunai). Sistem men-generate QR code berisi data transaksi (id antrian, total tagihan, kode transaksi) dan menampilkannya di layar Kasir.
@@ -1087,6 +1102,11 @@ Tabel ini adalah tempat menampung **semua temuan, kekurangan, dan ide tambahan**
 | B8 | Fase 1 | `npx tsc --noEmit` gagal di file sisa template (app-tabs, themed-view, collapsible, dsb. merujuk API tema lama `Colors`/`ThemeColor`) — pre-existing, di luar file Fase 1 | Rapikan/hapus komponen tak terpakai atau selaraskan ke token baru; tidak blokir runtime Expo | Rendah | Belum ditinjau |
 | B14 | Fase 4 | PRD F4.2 menyebut "Ambil Antrian ditolak di luar jam operasional"; keputusan produk: antrian **ditahan** (hold) sampai jam buka berikutnya | Gate di customer `new.tsx` + `queue.hold_until` + filter Kasir + badge DITAHAN + Admin editor jam operasional | Tinggi | Selesai |
 | B15 | Fase 4 | Dependency baru `xlsx@0.18.5` untuk ekspor laporan (F4.4) terkena CVE-2023-30533 (prototype pollution saat *membaca* file) dan CVE-2024-22363 (ReDoS). Aplikasi hanya memakai **writer** dengan data internal (tanpa impor file eksternal) | Catat sebagai deviasi dependency di laporan; opsi jangka panjang: ganti ke `exceljs` atau `xlsx` versi berbayar/terpelihara. Belum dikerjakan | Rendah | Disetujui, menunggu jadwal (advisory tercatat) |
+| B16 | Fase 5 | Display TV publik butuh membaca antrian tanpa login, sedangkan RLS `queue` menutup akses `anon` dan melindungi data customer | Tabel bayangan `queue_display` berisi kolom aman + trigger `SECURITY DEFINER` dari `queue`; `anon` hanya `SELECT`; realtime diaktifkan. Disetujui sesi 19 Nov 2026 | Tinggi | Disetujui (dikerjakan Fase 5) |
+| B17 | Fase 5 | Remote push notification tidak berjalan di Expo Go sejak SDK 53; butuh development build + push token + Edge Function + webhook DB | Tunda remote push ke fase akhir bersama Fase 6; Fase 5 memakai notifikasi lokal (`expo-notifications`) yang tetap jalan di Expo Go selama proses app hidup | Sedang | Disetujui, menunggu jadwal (fase akhir) |
+| B18 | Fase 5 | `pg_publication_rel` untuk `supabase_realtime` kosong — belum ada tabel yang terdaftar, sehingga subscription `postgres_changes` layar lama kemungkinan tidak pernah menerima event | Migrasi Fase 5 menambahkan `queue` + `queue_display` (disertai `replica identity full`); tabel lain perlu ditinjau terpisah | Tinggi | Sedang dikerjakan |
+| B19 | Fase 5 | `design.md` §8 menyebut Display TV tanpa elemen interaktif, tetapi browser memblokir audio sebelum ada interaksi user | Tombol "Aktifkan Suara" sekali klik (overlay) sebagai pengecualian teknis; setelah diklik overlay hilang dan layar kembali pasif | Sedang | Disetujui (dikerjakan Fase 5) |
+| B20 | Fase 5 | TTS Display memakai Web Speech API yang bergantung pada voice OS. Di mesin uji hanya voice `en-US` terpasang, sehingga pengumuman Indonesia memakai voice default (pengucapan tidak natural); `getVoices()` juga bisa kosong sesaat setelah halaman dimuat | (1) Sudah diperbaiki: tunggu event `voiceschanged`, cocokkan nama voice Indonesia, dan tampilkan instruksi pemasangan voice di Windows. (2) Opsi jangka panjang: TTS daring (butuh API key/biaya) bila perangkat Display tidak bisa memasang voice `id-ID` — belum dikerjakan | Sedang | Sebagian selesai (instruksi), opsi cloud menunggu keputusan |
 
 **Keterangan kolom:**
 - **Fase Asal**: fase di mana temuan ini muncul (mis. "Fase 1").

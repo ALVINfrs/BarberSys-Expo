@@ -25,7 +25,7 @@
 | 2 | Rating & komentar, katalog produk+treatment CRUD, add-on produk, nota gabungan, walk-in produk kasir, instruksi potongan, profil editable semua role, statistik harian barber, kirim tiket | ✅ Selesai |
 | **3** | **F3.1 status barber (Tersedia/Sibuk otomatis, Istirahat manual), F3.2 barber istirahat tak bisa dipilih, F3.3 cancel antrian (hanya `menunggu`), F3.4 struk PDF (`expo-print`+`expo-sharing`), F3.5 walk-in manual kasir** | ✅ Selesai |
 | **4** | **F4.1 tip, F4.2 jam operasional (Opsi H: antrian di luar jam ditahan `hold_until` + editor Admin), F4.3 estimasi tunggu per barber & global, F4.4 laporan PDF/XLSX, F4.5 dashboard Admin, F4.6 dashboard Kasir** | 🟡 Selesai diimplementasikan (18 Nov 2026) — menunggu uji manual di HP |
-| 5 | Display TV publik + TTS + push notification | ⏳ |
+| 5 | Display TV publik + TTS + notifikasi lokal (remote push ditunda, B17) | 🟡 Selesai diimplementasikan (19 Nov 2026) — menunggu uji manual di HP/browser |
 | 6 | QRIS dummy (`expo-camera` + QR generate) | ⏳ |
 
 Fitur fase yang belum tiba **wajib tampil sebagai tombol/tab terkunci** "🔒 Segera Hadir (dibuka di Fase X)" — jangan diimplementasi, jangan dihilangkan (mockup Stitch memuat elemennya).
@@ -34,8 +34,9 @@ Fitur fase yang belum tiba **wajib tampil sebagai tombol/tab terkunci** "🔒 Se
 
 - **Expo SDK 57** + expo-router (file-based routing) + TypeScript strict.
 - **Supabase**: Postgres + RLS, Realtime (postgres_changes), Storage (buckets `avatars`/`treatments`/`products`), Edge Functions (service_role), RPC untuk agregasi.
-- Paket terpasang: `expo-image-picker` (foto), `expo-sharing` (share native). Fase 3 menambah `expo-print` (PDF struk). Fase 4 menambah `xlsx` (ekspor laporan) dan memakai ulang `expo-print` untuk PDF laporan. Fase 6 menambah `expo-camera` + qrcode.
+- Paket terpasang: `expo-image-picker` (foto), `expo-sharing` (share native). Fase 3 menambah `expo-print` (PDF struk). Fase 4 menambah `xlsx` (ekspor laporan) dan memakai ulang `expo-print` untuk PDF laporan. Fase 5 menambah `expo-notifications` (notifikasi lokal; remote push ditunda ke fase akhir, B17). Fase 6 menambah `expo-camera` + qrcode.
   - ⚠️ Advisory `xlsx@0.18.5`: CVE-2023-30533 & CVE-2024-22363. Kode hanya memakai **writer** dengan data internal (tidak membaca file unggahan), sehingga risiko tidak terekspos; penggantian dependency dicatat di PRD B15 (menunggu jadwal).
+  - ⚠️ **B18**: publikasi `supabase_realtime` sebelumnya kosong. Migrasi Fase 5 menambahkan `queue` + `queue_display` + `replica identity full`; tabel lain belum terdaftar dan perlu ditinjau terpisah.
 - Waktu hari-ini dibatasi WIB (UTC+7) — lihat PRD 13.2.
 
 ## Arsitektur & Maintainability

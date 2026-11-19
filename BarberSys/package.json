@@ -17,6 +17,7 @@
     "expo-image": "~57.0.5",
     "expo-image-picker": "~57.0.17",
     "expo-linking": "~57.0.10",
+    "expo-notifications": "~57.0.25",
     "expo-print": "~57.0.2",
     "expo-router": "~57.0.21",
     "expo-sharing": "~57.0.19",
@@ -53,7 +54,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test:unit": "node --no-warnings --experimental-strip-types --test scripts/test-barber-availability.mjs scripts/test-kursi-availability.mjs scripts/test-waktu.mjs scripts/test-queue-load.mjs scripts/test-estimasi.mjs scripts/test-jam-operasional.mjs scripts/test-receipt.mjs scripts/test-tab-bar.mjs"
+    "test:unit": "node --no-warnings --experimental-strip-types --test scripts/test-barber-availability.mjs scripts/test-kursi-availability.mjs scripts/test-waktu.mjs scripts/test-queue-load.mjs scripts/test-estimasi.mjs scripts/test-jam-operasional.mjs scripts/test-receipt.mjs scripts/test-tab-bar.mjs scripts/test-display.mjs scripts/test-pengumuman.mjs scripts/test-notifikasi-antrian.mjs"
   },
   "private": true
 }

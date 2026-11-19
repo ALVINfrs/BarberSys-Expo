@@ -4,11 +4,13 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useAppTheme } from '@/context/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getTabBarMetrics } from '@/lib/tab-bar';
+import { useQueueNotifications } from '@/hooks/useQueueNotifications';
 
 export default function CustomerLayout() {
   const { theme } = useAppTheme();
   const insets = useSafeAreaInsets();
   const tabBar = getTabBarMetrics(insets.bottom);
+  useQueueNotifications();
 
   return (
     <Tabs

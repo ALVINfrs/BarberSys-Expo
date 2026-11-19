@@ -219,6 +219,7 @@ Layar ini **selalu memakai Dark Mode**, terlepas dari preferensi perangkat — a
 - Nomor antrian: `type.display` diperbesar (± 80–120px di layar TV), mono font, warna `color.accent-amber` di atas `color.bg` gelap agar mencolok.
 - Transisi saat nomor berganti: sedikit animasi masuk (geser/fade singkat) dibarengi pengumuman TTS — satu momen animasi yang berarti, bukan animasi di semua elemen.
 - Tidak ada elemen interaktif (murni tampilan publik, tanpa tombol).
+- **Pengecualian teknis (B19):** satu tombol "Aktifkan Suara" ditampilkan sekali saat halaman dibuka, karena browser memblokir audio sebelum ada interaksi user. Setelah diklik, overlay hilang dan layar kembali pasif.
 
 ---
 
