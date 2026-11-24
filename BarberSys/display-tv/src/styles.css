@@ -1,0 +1,266 @@
+:root {
+  color-scheme: dark;
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+  background: #0d0d0f;
+  color: #f5f3ee;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.screen {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 28px 40px 22px;
+  background:
+    radial-gradient(circle at 85% 10%, rgba(245, 183, 0, 0.08), transparent 40%),
+    #0d0d0f;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 2px solid #2c2c31;
+  padding-bottom: 14px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand-mark {
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  background: #f5b700;
+  border: 2px solid #f5f3ee;
+  font-size: 30px;
+  font-weight: 900;
+  color: #111;
+}
+
+.brand-name {
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: 2px;
+}
+
+.brand-sub {
+  font-size: 12px;
+  letter-spacing: 4px;
+  color: #a8a6a0;
+}
+
+.clock-wrap {
+  text-align: right;
+}
+
+.clock {
+  font-size: 56px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -2px;
+  line-height: 1;
+}
+
+.clock-zone {
+  font-size: 13px;
+  letter-spacing: 3px;
+  color: #f5b700;
+}
+
+.call-banner {
+  border: 3px solid #f5b700;
+  background: linear-gradient(120deg, rgba(245, 183, 0, 0.18), rgba(245, 183, 0, 0.02));
+  padding: 20px 28px;
+  display: grid;
+  gap: 4px;
+}
+
+.call-banner.idle {
+  border-color: #3a3a40;
+  background: #1b1b1f;
+}
+
+.call-label {
+  font-size: 13px;
+  letter-spacing: 5px;
+  color: #f5b700;
+  font-weight: 700;
+}
+
+.call-number {
+  font-size: 104px;
+  line-height: 1;
+  font-weight: 900;
+  letter-spacing: -4px;
+}
+
+.call-number.small {
+  font-size: 52px;
+  letter-spacing: -1px;
+}
+
+.call-detail {
+  font-size: 26px;
+  color: #d8d6d0;
+}
+
+.queue-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-head h2 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: 4px;
+}
+
+.dot {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: #8a8a85;
+}
+
+.dot.live {
+  color: #4cd97a;
+}
+
+.queue-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.queue-card {
+  border: 2px solid #3a3a40;
+  background: #1b1b1f;
+  padding: 14px 16px;
+  display: grid;
+  gap: 3px;
+}
+
+.queue-card.dipanggil {
+  border-color: #f5b700;
+  background: rgba(245, 183, 0, 0.12);
+}
+
+.queue-card.dilayani {
+  border-color: #4cd97a;
+}
+
+.queue-number {
+  font-size: 38px;
+  font-weight: 900;
+  letter-spacing: -1px;
+}
+
+.queue-status {
+  font-size: 12px;
+  letter-spacing: 3px;
+  color: #a8a6a0;
+}
+
+.queue-barber,
+.queue-seat {
+  font-size: 15px;
+  color: #d8d6d0;
+}
+
+.empty {
+  padding: 28px;
+  border: 2px dashed #3a3a40;
+  text-align: center;
+  color: #8a8a85;
+  font-size: 20px;
+}
+
+.bottom {
+  display: grid;
+  gap: 10px;
+}
+
+.ticker {
+  overflow: hidden;
+  white-space: nowrap;
+  border-top: 2px solid #2c2c31;
+  border-bottom: 2px solid #2c2c31;
+  padding: 8px 0;
+  font-size: 18px;
+  color: #f5b700;
+}
+
+.ticker-track {
+  display: inline-block;
+  padding-left: 100%;
+  animation: marquee 28s linear infinite;
+}
+
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+.controls {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.controls button,
+.controls select {
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 12px;
+  background: #1b1b1f;
+  color: #f5f3ee;
+  border: 2px solid #f5f3ee;
+  cursor: pointer;
+}
+
+.controls button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.voice-warning {
+  position: fixed;
+  left: 40px;
+  bottom: 96px;
+  max-width: 620px;
+  padding: 12px 16px;
+  background: #2a2110;
+  border: 2px solid #f5b700;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .screen { padding: 18px; }
+  .queue-grid { grid-template-columns: repeat(2, 1fr); }
+  .clock { font-size: 38px; }
+  .call-number { font-size: 68px; }
+}
