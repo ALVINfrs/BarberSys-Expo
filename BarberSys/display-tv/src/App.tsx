@@ -39,7 +39,7 @@ export default function App() {
             }`
         )
         .join('   •   ')
-    : 'Selamat datang di BarberSys — antrei sistem akan muncul di sini.';
+    : 'Selamat datang di BarberSys — antrian sistem akan muncul di sini.';
 
   return (
     <div className="screen">

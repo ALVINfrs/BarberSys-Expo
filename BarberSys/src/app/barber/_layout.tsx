@@ -46,6 +46,15 @@ export default function BarberLayout() {
         }}
       />
       <Tabs.Screen
+        name="tip"
+        options={{
+          title: 'Tip',
+          tabBarIcon: ({ color }) => (
+            <MaterialIcons name="savings" size={22} color={typeof color === 'string' ? color : theme.ink} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profil',

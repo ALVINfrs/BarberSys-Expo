@@ -59,7 +59,7 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "typecheck": "tsc --noEmit",
-    "test:unit": "node --no-warnings --experimental-strip-types --test scripts/test-barber-availability.mjs scripts/test-kursi-availability.mjs scripts/test-waktu.mjs scripts/test-queue-load.mjs scripts/test-estimasi.mjs scripts/test-jam-operasional.mjs scripts/test-receipt.mjs scripts/test-tab-bar.mjs scripts/test-display.mjs scripts/test-pengumuman.mjs scripts/test-notifikasi-antrian.mjs scripts/test-theme-preference.mjs scripts/test-ticker.mjs scripts/test-qris.mjs scripts/test-payment-receipt.mjs scripts/test-share-pdf.mjs scripts/test-receipt-history.mjs scripts/test-receipt-row.mjs scripts/test-rating.mjs scripts/test-dashboard.mjs scripts/test-barber-performance.mjs scripts/test-announcement.mjs"
+    "test:unit": "node --no-warnings --experimental-strip-types --test scripts/test-barber-availability.mjs scripts/test-kursi-availability.mjs scripts/test-waktu.mjs scripts/test-queue-load.mjs scripts/test-estimasi.mjs scripts/test-jam-operasional.mjs scripts/test-receipt.mjs scripts/test-tab-bar.mjs scripts/test-display.mjs scripts/test-pengumuman.mjs scripts/test-notifikasi-antrian.mjs scripts/test-theme-preference.mjs scripts/test-ticker.mjs scripts/test-qris.mjs scripts/test-payment-receipt.mjs scripts/test-share-pdf.mjs scripts/test-receipt-history.mjs scripts/test-receipt-row.mjs scripts/test-rating.mjs scripts/test-dashboard.mjs scripts/test-barber-performance.mjs scripts/test-announcement.mjs scripts/test-camera-gate.mjs scripts/test-navigation.mjs scripts/test-tip-history.mjs"
   },
   "private": true
 }

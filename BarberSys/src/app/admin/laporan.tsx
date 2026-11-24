@@ -9,6 +9,7 @@ import { RoleHeader } from '@/components/RoleHeader';
 import { useAppTheme } from '@/context/ThemeContext';
 import { startOfDayWIBISO, startOfMonthWIBISO, startOfWeekWIBISO } from '@/lib/waktu';
 import { shareLocalFile, sharePdfFromHtml } from '@/lib/share-pdf';
+import { RATING_HREF } from '@/lib/navigation';
 import { formatQueueNumber } from '@/lib/ticker';
 import { AppText } from '@/components/ui/text';
 import { Badge } from '@/components/ui/badge';
@@ -201,7 +202,7 @@ export default function AdminLaporanScreen() {
         </View>
 
         <PressableScale
-          onPress={() => router.push('/admin/rating' as any)}
+          onPress={() => router.push(RATING_HREF as any)}
           accessibilityRole="button"
           style={[styles.ratingLink, { borderColor: theme.ink, backgroundColor: theme.surface }]}
         >

@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { RoleHeader } from '@/components/RoleHeader';
 import { useAppTheme } from '@/context/ThemeContext';
 import { addWIBDays, formatWIBDate, formatWIBTime, startOfDayWIBISO } from '@/lib/waktu';
+import { RATING_HREF } from '@/lib/navigation';
 import {
   barberPerformance,
   dailyRevenue,
@@ -48,7 +49,7 @@ interface LiveQueue {
 
 const SHORTCUTS = [
   { label: 'Laporan', icon: 'analytics' as const, route: '/admin/laporan' },
-  { label: 'Rating', icon: 'star' as const, route: '/admin/rating' },
+  { label: 'Rating', icon: 'star' as const, route: RATING_HREF },
   { label: 'Pegawai', icon: 'people-outline' as const, route: '/admin/staff' },
   { label: 'Display', icon: 'tv' as const, route: '/display' },
 ];
@@ -472,7 +473,7 @@ export default function AdminRingkasanScreen() {
         </View>
 
         <PressableScale
-          onPress={() => router.push('/admin/rating' as any)}
+          onPress={() => router.push(RATING_HREF as any)}
           accessibilityRole="button"
           style={[
             styles.linkCard,

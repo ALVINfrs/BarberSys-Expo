@@ -74,8 +74,6 @@ export default function AdminLayout() {
           ),
         }}
       />
-      {/* Rating & Komentar dibuka dari Ringkasan/Laporan, bukan tab tambahan */}
-      <Tabs.Screen name="rating" options={{ href: null }} />
     </Tabs>
   );
 }
