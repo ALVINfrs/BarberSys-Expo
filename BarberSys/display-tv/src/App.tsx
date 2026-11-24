@@ -104,14 +104,13 @@ export default function App() {
           <span className="ticker-track">{ticker}</span>
         </div>
         <div className="controls">
+          {speech.piperLoading ? (
+            <span className="download-status">
+              Mengunduh suara Indonesia… {speech.piperProgress}%
+            </span>
+          ) : null}
           {!speech.enabled ? (
-            <button
-              type="button"
-              onClick={() => {
-                window.speechSynthesis?.resume();
-                speech.setEnabled(true);
-              }}
-            >
+            <button type="button" onClick={speech.activate}>
               Aktifkan Suara
             </button>
           ) : null}
@@ -119,25 +118,38 @@ export default function App() {
             Tes Suara
           </button>
           <select
-            aria-label="Pilih suara Bahasa Indonesia"
-            value={speech.voiceUri || ''}
-            onChange={(event) => speech.setVoiceUri(event.target.value || null)}
+            aria-label="Mesin suara"
+            value={speech.preferred}
+            onChange={(event) =>
+              speech.setPreferred(event.target.value as 'piper' | 'browser')
+            }
           >
-            <option value="">Suara default (id-ID)</option>
-            {speech.voices.map((voice) => (
-              <option key={voice.voiceURI} value={voice.voiceURI}>
-                {voice.name} ({voice.lang})
-              </option>
-            ))}
+            <option value="piper">Piper Indonesia (lokal)</option>
+            <option value="browser">Suara Browser</option>
           </select>
+          {speech.preferred === 'browser' ? (
+            <select
+              aria-label="Pilih suara browser"
+              value={speech.voiceUri || ''}
+              onChange={(event) => speech.setVoiceUri(event.target.value || null)}
+            >
+              <option value="">Suara default (id-ID)</option>
+              {speech.voices.map((voice) => (
+                <option key={voice.voiceURI} value={voice.voiceURI}>
+                  {voice.name} ({voice.lang})
+                </option>
+              ))}
+            </select>
+          ) : null}
         </div>
       </footer>
 
-      {speech.noIndonesianVoice ? (
+      {speech.warning ? (
         <div className="voice-warning" role="alert">
-          <strong>Suara Bahasa Indonesia tidak tersedia di perangkat ini.</strong>{' '}
-          Buka Pengaturan Sistem → Bahasa &amp; Input → Teks-ke-suara, pasang voice Indonesia,
-          lalu muat ulang halaman. Tanpa itu, pengumuman dibacakan dengan aksen default.
+          <strong>Suara Indonesia belum siap.</strong>{' '}
+          {speech.piperError || speech.piperLoading
+            ? 'Model Piper sedang diunduh atau gagal dimuat; pengumuman sementara memakai suara browser.'
+            : 'Pasang voice Bahasa Indonesia di perangkat, atau biarkan Piper mengunduh modelnya saat tombol Aktifkan Suara ditekan.'}
         </div>
       ) : null}
     </div>

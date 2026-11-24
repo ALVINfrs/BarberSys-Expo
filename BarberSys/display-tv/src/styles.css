@@ -246,6 +246,12 @@ body {
   cursor: not-allowed;
 }
 
+.download-status {
+  font-size: 13px;
+  color: #f5b700;
+  margin-right: auto;
+}
+
 .voice-warning {
   position: fixed;
   left: 40px;
