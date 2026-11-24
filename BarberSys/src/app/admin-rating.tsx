@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
+import { useRoleGuard } from '@/hooks/use-role-guard';
 import { useAppTheme } from '@/context/ThemeContext';
 import { RoleHeader } from '@/components/RoleHeader';
 import { AppText } from '@/components/ui/text';
@@ -53,6 +54,7 @@ function StarRow({ rating }: { rating: number }) {
 }
 
 export default function AdminRatingScreen() {
+  const allowed = useRoleGuard('admin');
   const { theme } = useAppTheme();
   const [rows, setRows] = useState<RatingEntry[]>([]);
   const [barbers, setBarbers] = useState<string[]>([]);
@@ -126,6 +128,8 @@ export default function AdminRatingScreen() {
   }, [rows, periode, barber, minRating]);
 
   const summary = React.useMemo(() => summarizeRatings(visible), [visible]);
+
+  if (!allowed) return null;
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.bg }]}>

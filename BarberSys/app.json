@@ -28,12 +28,18 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#FCF9F8",
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "BarberSys memakai kamera untuk memindai QR pembayaran."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

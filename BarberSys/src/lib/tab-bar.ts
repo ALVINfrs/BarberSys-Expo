@@ -28,3 +28,35 @@ export function getTabBarMetrics(bottomInset: number | null | undefined): TabBar
     paddingBottom: BASE_BOTTOM + inset,
   };
 }
+
+/**
+ * Expo Router 58 mengganti prop tabBar: `navigation` diganti `emitter` +
+ * `navigateToTab(routeKey)`. Helper ini menjaga urutan perilaku React
+ * Navigation: emit `tabPress` dulu, navigasi hanya jika tab belum fokus dan
+ * event tidak dicegah (`preventDefault`).
+ */
+export interface TabPressEvent {
+  defaultPrevented?: boolean;
+}
+
+export interface PressTabInput {
+  focused: boolean;
+  routeKey: string;
+  emit: (event: {
+    type: 'tabPress';
+    target: string;
+    canPreventDefault: true;
+  }) => TabPressEvent | undefined;
+  navigateToTab: (routeKey: string) => void;
+}
+
+export function pressTab({ focused, routeKey, emit, navigateToTab }: PressTabInput): void {
+  const event = emit({
+    type: 'tabPress',
+    target: routeKey,
+    canPreventDefault: true,
+  });
+  if (!focused && !event?.defaultPrevented) {
+    navigateToTab(routeKey);
+  }
+}

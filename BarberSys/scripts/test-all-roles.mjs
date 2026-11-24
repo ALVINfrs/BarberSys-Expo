@@ -11,10 +11,10 @@ if (!url || !key) {
 const supabase = createClient(url, key);
 
 const testAccounts = [
-  { email: 'customer@barbersys.com', expectedRole: 'customer', targetRoute: '/(customer)/home' },
-  { email: 'barber@barbersys.com', expectedRole: 'barber', targetRoute: '/(barber)/queue' },
-  { email: 'kasir@barbersys.com', expectedRole: 'kasir', targetRoute: '/(kasir)/queue' },
-  { email: 'admin@barbersys.com', expectedRole: 'admin', targetRoute: '/(admin)/treatments' },
+  { email: 'customer@barbersys.com', expectedRole: 'customer', targetRoute: '/customer/home' },
+  { email: 'barber@barbersys.com', expectedRole: 'barber', targetRoute: '/barber/queue' },
+  { email: 'kasir@barbersys.com', expectedRole: 'kasir', targetRoute: '/kasir/queue' },
+  { email: 'admin@barbersys.com', expectedRole: 'admin', targetRoute: '/admin/treatments' },
 ];
 
 async function testAllRoles() {

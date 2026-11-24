@@ -10,8 +10,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { RoleHeader } from '@/components/RoleHeader';
+import { PressableScale } from '@/components/ui/pressable-scale';
 import { brutalistCard, brutalistButton, brutalistInput } from '@/constants/theme';
 import { pickAndUploadPhoto, isPickerCancelled } from '@/lib/upload-photo';
 import { useAuth } from '@/context/AuthContext';
@@ -24,7 +26,7 @@ interface ProfileFormProps {
 }
 
 export const ProfileForm: React.FC<ProfileFormProps> = ({ title, fallbackName, footer }) => {
-  const { theme } = useAppTheme();
+  const { theme, mode } = useAppTheme();
   const { profile, user, refreshProfile, signOut } = useAuth();
   const router = useRouter();
 
@@ -184,6 +186,35 @@ export const ProfileForm: React.FC<ProfileFormProps> = ({ title, fallbackName, f
             )}
           </TouchableOpacity>
 
+          <View
+            style={[
+              styles.settingsBlock,
+              { borderColor: theme.cardBorder, backgroundColor: theme.surfaceContainerLow },
+            ]}
+          >
+            <Text style={[styles.settingsLabel, { color: theme.inkMuted }]}>PENGATURAN</Text>
+            <PressableScale
+              accessibilityRole="button"
+              accessibilityLabel="Buka pengaturan tampilan"
+              onPress={() => router.push('/pengaturan/tampilan' as any)}
+              style={styles.settingsRow}
+            >
+              <View
+                style={[
+                  styles.settingsIcon,
+                  { backgroundColor: theme.accentAmber, borderColor: theme.ink },
+                ]}
+              >
+                <MaterialIcons name="palette" size={16} color="#111111" />
+              </View>
+              <Text style={[styles.settingsText, { color: theme.ink }]}>Tampilan</Text>
+              <Text style={[styles.settingsValue, { color: theme.inkMuted }]}>
+                {mode === 'dark' ? 'Gelap' : 'Terang'}
+              </Text>
+              <MaterialIcons name="chevron-right" size={20} color={theme.inkMuted} />
+            </PressableScale>
+          </View>
+
           <TouchableOpacity
             style={[brutalistButton(theme as any, 'danger'), { marginTop: 12 }]}
             onPress={handleLogout}
@@ -213,4 +244,23 @@ const styles = StyleSheet.create({
   message: { fontSize: 13, fontWeight: '600', marginVertical: 8 },
   primaryBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
   logoutText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  settingsBlock: {
+    marginTop: 14,
+    borderWidth: 2,
+    borderRadius: 10,
+    padding: 10,
+    gap: 6,
+  },
+  settingsLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 0.8 },
+  settingsRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 2 },
+  settingsIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingsText: { flex: 1, fontSize: 14, fontWeight: '700' },
+  settingsValue: { fontSize: 13, fontWeight: '600' },
 });

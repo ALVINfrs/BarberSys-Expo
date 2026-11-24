@@ -1,8 +1,16 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  parseThemeMode,
+  THEME_STORAGE_KEY,
+  ThemeMode,
+} from '@/lib/theme-preference';
 
 export interface StitchTheme {
   isDark: boolean;
+  mode: ThemeMode;
   bg: string;
+  paper: string;
   surface: string;
   surfaceContainer: string;
   surfaceContainerLow: string;
@@ -23,11 +31,29 @@ export interface StitchTheme {
   accentAmber: string;
   cardBorder: string;
   cardShadow: string;
+  shadow: string;
+  shadowAccent: string;
+  stripe: {
+    crimson: string;
+    cobalt: string;
+    amber: string;
+    cream: string;
+  };
+  radius: {
+    sm: number;
+    md: number;
+    lg: number;
+    pill: number;
+  };
 }
+
+const radius = { sm: 6, md: 10, lg: 16, pill: 999 } as const;
 
 export const lightStitchTheme: StitchTheme = {
   isDark: false,
+  mode: 'light',
   bg: '#FCF9F8',
+  paper: '#F4EFE9',
   surface: '#FFFFFF',
   surfaceContainer: '#F0EDEC',
   surfaceContainerLow: '#F6F3F2',
@@ -48,11 +74,22 @@ export const lightStitchTheme: StitchTheme = {
   accentAmber: '#F5B700',
   cardBorder: '#111111',
   cardShadow: '#111111',
+  shadow: '#111111',
+  shadowAccent: '#F5B700',
+  stripe: {
+    crimson: '#D7263D',
+    cobalt: '#1C4ED8',
+    amber: '#F5B700',
+    cream: '#FCF9F8',
+  },
+  radius: { ...radius },
 };
 
 export const darkStitchTheme: StitchTheme = {
   isDark: true,
+  mode: 'dark',
   bg: '#121214',
+  paper: '#1E1E22',
   surface: '#1B1B1F',
   surfaceContainer: '#26262B',
   surfaceContainerLow: '#1E1E22',
@@ -73,32 +110,74 @@ export const darkStitchTheme: StitchTheme = {
   accentAmber: '#FFCB3C',
   cardBorder: '#333338',
   cardShadow: '#000000',
+  shadow: '#000000',
+  shadowAccent: '#FFCB3C',
+  stripe: {
+    crimson: '#FF5164',
+    cobalt: '#5B85FF',
+    amber: '#FFCB3C',
+    cream: '#F5F3EE',
+  },
+  radius: { ...radius },
 };
 
 interface ThemeContextType {
   theme: StitchTheme;
   isDark: boolean;
+  mode: ThemeMode;
+  setMode: (mode: ThemeMode) => void;
   toggleTheme: () => void;
 }
 
 const ThemeContext = createContext<ThemeContextType>({
   theme: lightStitchTheme,
   isDark: false,
+  mode: 'light',
+  setMode: () => {},
   toggleTheme: () => {},
 });
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Default to Light mode (#FCF9F8 cream background) per Stitch specifications
-  const [isDark, setIsDark] = useState<boolean>(false);
+  const [mode, setModeState] = useState<ThemeMode>('light');
+  const [hydrated, setHydrated] = useState(false);
 
-  const toggleTheme = () => {
-    setIsDark((prev) => !prev);
-  };
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(THEME_STORAGE_KEY)
+      .then((raw) => {
+        if (!cancelled) setModeState(parseThemeMode(raw));
+      })
+      .catch(() => {
+        // Preferensi rusak/tidak tersedia → tetap terang.
+      })
+      .finally(() => {
+        if (!cancelled) setHydrated(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const theme = isDark ? darkStitchTheme : lightStitchTheme;
+  const setMode = useCallback((next: ThemeMode) => {
+    setModeState(next);
+    AsyncStorage.setItem(THEME_STORAGE_KEY, next).catch(() => {
+      // Gagal menyimpan tidak boleh memblokir perubahan tema.
+    });
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setMode(mode === 'light' ? 'dark' : 'light');
+  }, [mode, setMode]);
+
+  // Tahan render sampai preferensi terbaca agar tidak ada kedipan terang→gelap.
+  if (!hydrated) return null;
+
+  const theme = mode === 'dark' ? darkStitchTheme : lightStitchTheme;
 
   return (
-    <ThemeContext.Provider value={{ theme, isDark, toggleTheme }}>
+    <ThemeContext.Provider
+      value={{ theme, isDark: mode === 'dark', mode, setMode, toggleTheme }}
+    >
       {children}
     </ThemeContext.Provider>
   );

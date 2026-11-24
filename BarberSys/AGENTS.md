@@ -5,7 +5,7 @@
 ## Sumber Kebenaran (baca sebelum menulis kode)
 
 1. `docs/prd .md` — PRD: requirement per fase (Bagian 13), skema DB (Bagian 7), aturan bisnis (Bagian 15), **aturan kerja wajib (Bagian 19)**, backlog (Bagian 20).
-2. `docs/design.md` — token desain (Neo-Brutalism) + spesifikasi komponen. UI wajib match persis mockup Stitch di `docs/stitch/screen_*.html`.
+2. `docs/design.md` — token desain **Neo-Brutalism Editorial ("Editorial Barber") versi 2.0** + spesifikasi komponen. Arah ini disetujui 19 Nov 2026 dan menggantikan aturan "UI wajib match persis mockup Stitch"; mockup Stitch tetap menjadi referensi struktur layar.
 3. Dokumen ini — ringkasan teknis + status roadmap. Diperbarui tiap ganti fase.
 
 ## Aturan Kerja (mirror PRD §19 — wajib)
@@ -26,7 +26,8 @@
 | **3** | **F3.1 status barber (Tersedia/Sibuk otomatis, Istirahat manual), F3.2 barber istirahat tak bisa dipilih, F3.3 cancel antrian (hanya `menunggu`), F3.4 struk PDF (`expo-print`+`expo-sharing`), F3.5 walk-in manual kasir** | ✅ Selesai |
 | **4** | **F4.1 tip, F4.2 jam operasional (Opsi H: antrian di luar jam ditahan `hold_until` + editor Admin), F4.3 estimasi tunggu per barber & global, F4.4 laporan PDF/XLSX, F4.5 dashboard Admin, F4.6 dashboard Kasir** | 🟡 Selesai diimplementasikan (18 Nov 2026) — menunggu uji manual di HP |
 | 5 | Display TV publik + TTS + notifikasi lokal (remote push ditunda, B17) | 🟡 Selesai diimplementasikan (19 Nov 2026) — menunggu uji manual di HP/browser |
-| 6 | QRIS dummy (`expo-camera` + QR generate) | ⏳ |
+| **UI 2.0** | **Redesign "Editorial Barber" seluruh layar (auth, customer, barber, kasir, admin, display) + UI kit + toggle tema `WallSwitch`; Google OAuth dihapus dari UI (B22)** | 🟡 Selesai diimplementasikan (20 Nov 2026) — menunggu uji runtime/manual |
+| 6 | QRIS dummy (`expo-camera` + QR generate) | ⏳ Menyusul setelah UI 2.0 |
 
 Fitur fase yang belum tiba **wajib tampil sebagai tombol/tab terkunci** "🔒 Segera Hadir (dibuka di Fase X)" — jangan diimplementasi, jangan dihilangkan (mockup Stitch memuat elemennya).
 

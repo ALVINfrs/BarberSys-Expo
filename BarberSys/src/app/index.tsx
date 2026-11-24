@@ -25,16 +25,16 @@ export default function SplashScreen() {
     // Role-based router (PRD 13.1.1)
     switch (profile.role) {
       case 'customer':
-        router.replace('/(customer)/home' as any);
+        router.replace('/customer/home' as any);
         break;
       case 'kasir':
-        router.replace('/(kasir)/queue' as any);
+        router.replace('/kasir/queue' as any);
         break;
       case 'barber':
-        router.replace('/(barber)/queue' as any);
+        router.replace('/barber/queue' as any);
         break;
       case 'admin':
-        router.replace('/(admin)/treatments' as any);
+        router.replace('/admin/treatments' as any);
         break;
       default:
         router.replace('/(auth)/login' as any);

@@ -5,15 +5,18 @@ import { supabase } from '@/lib/supabase';
 import {
   buildDisplaySnapshot,
   formatClockWIB,
-  formatNomorAntrian,
   type DisplayRow,
 } from '@/lib/display';
+import { formatQueueNumber } from '@/lib/ticker';
+import { Reveal } from '@/components/ui/reveal';
+import { Ticker } from '@/components/ui/ticker';
 import {
   collectNewAnnouncements,
   pickIndonesianVoice,
   seedAnnouncementKeys,
 } from '@/lib/pengumuman';
 import { getHoldRefreshDelayMs } from '@/lib/waktu';
+import { Fonts } from '@/constants/fonts';
 
 /**
  * F5.1/F5.2 — Display TV publik (web, tanpa login).
@@ -303,34 +306,37 @@ export default function DisplayScreen() {
           </View>
         ) : (
           <View style={styles.calledGrid}>
-            {snapshot.called.map((item) => (
-              <View
-                key={item.queue_id}
-                style={[
-                  styles.callCard,
-                  {
-                    backgroundColor: theme.surface,
-                    borderColor: theme.ink,
-                    shadowColor: theme.cardShadow,
-                  },
-                ]}
-              >
-                <Text style={[styles.callNumber, { color: theme.amber }]}>
-                  {formatNomorAntrian(item.nomor_antrian)}
-                </Text>
-                <Text
+            {snapshot.called.map((item, index) => (
+              <Reveal key={item.queue_id} delay={index * 60} style={styles.callCardWrap}>
+                <View
                   style={[
-                    styles.callBadge,
-                    { color: item.status === 'dipanggil' ? theme.info : theme.warning },
+                    styles.callCard,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.ink,
+                      shadowColor: theme.cardShadow,
+                    },
                   ]}
                 >
-                  {item.status === 'dipanggil' ? 'SILAKAN MENUJU KURSI' : 'SEDANG DILAYANI'}
-                </Text>
-                <Text style={[styles.callMeta, { color: theme.ink }]}>
-                  {item.barber_nama || 'Barber'}
-                  {item.kursi_nomor != null ? ` • Kursi ${item.kursi_nomor}` : ''}
-                </Text>
-              </View>
+                  <Ticker
+                    value={formatQueueNumber(item.nomor_antrian)}
+                    fontSize={96}
+                    color={theme.amber}
+                  />
+                  <Text
+                    style={[
+                      styles.callBadge,
+                      { color: item.status === 'dipanggil' ? theme.info : theme.warning },
+                    ]}
+                  >
+                    {item.status === 'dipanggil' ? 'SILAKAN MENUJU KURSI' : 'SEDANG DILAYANI'}
+                  </Text>
+                  <Text style={[styles.callMeta, { color: theme.ink }]}>
+                    {item.barber_nama || 'Barber'}
+                    {item.kursi_nomor != null ? ` • Kursi ${item.kursi_nomor}` : ''}
+                  </Text>
+                </View>
+              </Reveal>
             ))}
           </View>
         )}
@@ -343,15 +349,16 @@ export default function DisplayScreen() {
             {snapshot.next.length === 0 ? (
               <Text style={[styles.nextEmpty, { color: theme.inkMuted }]}>—</Text>
             ) : (
-              snapshot.next.map((item) => (
-                <View
-                  key={item.queue_id}
-                  style={[styles.nextChip, { borderColor: theme.ink, backgroundColor: theme.surface }]}
-                >
-                  <Text style={[styles.nextNumber, { color: theme.ink }]}>
-                    {formatNomorAntrian(item.nomor_antrian)}
-                  </Text>
-                </View>
+              snapshot.next.map((item, index) => (
+                <Reveal key={item.queue_id} delay={index * 50}>
+                  <View
+                    style={[styles.nextChip, { borderColor: theme.ink, backgroundColor: theme.surface }]}
+                  >
+                    <Text style={[styles.nextNumber, { color: theme.ink }]}>
+                      {formatQueueNumber(item.nomor_antrian)}
+                    </Text>
+                  </View>
+                </Reveal>
               ))
             )}
           </View>
@@ -414,13 +421,13 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   brand: {
-    fontSize: 30,
-    fontWeight: '800',
+    fontFamily: Fonts.display,
+    fontSize: 32,
     letterSpacing: 3,
   },
   store: {
+    fontFamily: Fonts.bodyBold,
     fontSize: 14,
-    fontWeight: '700',
     letterSpacing: 2,
     marginTop: 4,
     textTransform: 'uppercase',
@@ -445,29 +452,31 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   syncText: {
+    fontFamily: Fonts.bodyMedium,
     fontSize: 12,
-    fontWeight: '500',
     marginTop: 4,
   },
   main: {
     flex: 1,
   },
   sectionLabel: {
-    fontSize: 14,
-    fontWeight: '800',
-    letterSpacing: 3,
-    marginBottom: 12,
+    fontFamily: Fonts.bodyBold,
+    fontSize: 16,
+    letterSpacing: 3.5,
+    marginBottom: 14,
   },
   calledGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 20,
   },
-  callCard: {
+  callCardWrap: {
     flexGrow: 1,
     flexBasis: 300,
     minWidth: 280,
     maxWidth: 560,
+  },
+  callCard: {
     borderWidth: 2,
     paddingHorizontal: 24,
     paddingVertical: 20,
@@ -476,22 +485,15 @@ const styles = StyleSheet.create({
     shadowRadius: 0,
     elevation: 6,
   },
-  callNumber: {
-    fontFamily: MONO,
-    fontSize: 96,
-    lineHeight: 104,
-    fontWeight: '700',
-    letterSpacing: 2,
-  },
   callBadge: {
-    fontSize: 13,
-    fontWeight: '800',
+    fontFamily: Fonts.bodyBold,
+    fontSize: 15,
     letterSpacing: 2,
     marginTop: 4,
   },
   callMeta: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontFamily: Fonts.bodySemi,
+    fontSize: 24,
     marginTop: 8,
   },
   emptyCard: {
@@ -501,8 +503,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyText: {
+    fontFamily: Fonts.bodySemi,
     fontSize: 22,
-    fontWeight: '600',
   },
   footer: {
     flexDirection: 'row',
@@ -532,12 +534,12 @@ const styles = StyleSheet.create({
   },
   nextNumber: {
     fontFamily: MONO,
-    fontSize: 30,
+    fontSize: 32,
     fontWeight: '700',
   },
   nextEmpty: {
+    fontFamily: Fonts.mono,
     fontSize: 24,
-    fontWeight: '700',
   },
   waitingBox: {
     borderWidth: 2,
@@ -547,19 +549,18 @@ const styles = StyleSheet.create({
     minWidth: 120,
   },
   waitingLabel: {
-    fontSize: 11,
-    fontWeight: '800',
+    fontFamily: Fonts.bodyBold,
+    fontSize: 12,
     letterSpacing: 2,
   },
   waitingCount: {
     fontFamily: MONO,
-    fontSize: 40,
-    fontWeight: '700',
-    lineHeight: 46,
+    fontSize: 42,
+    lineHeight: 48,
   },
   voiceNote: {
+    fontFamily: Fonts.bodyMedium,
     fontSize: 12,
-    fontWeight: '500',
     marginTop: 8,
   },
   overlay: {
@@ -574,14 +575,14 @@ const styles = StyleSheet.create({
     padding: 32,
   },
   overlayTitle: {
-    fontSize: 40,
-    fontWeight: '800',
+    fontFamily: Fonts.display,
+    fontSize: 44,
     letterSpacing: 4,
     marginBottom: 12,
   },
   overlayText: {
+    fontFamily: Fonts.body,
     fontSize: 18,
-    fontWeight: '500',
     textAlign: 'center',
     marginBottom: 28,
   },
@@ -599,8 +600,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 1, height: 1 },
   },
   overlayButtonText: {
+    fontFamily: Fonts.bodyBold,
     fontSize: 20,
-    fontWeight: '800',
     letterSpacing: 1,
     color: '#111111',
   },

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { getTabBarMetrics } from '../src/lib/tab-bar.ts';
+import { getTabBarMetrics, pressTab } from '../src/lib/tab-bar.ts';
 
 describe('tab-bar metrics', () => {
   it('tanpa inset (gesture nav / iOS) = ukuran desain awal', () => {
@@ -32,5 +32,56 @@ describe('tab-bar metrics', () => {
     assert.deepEqual(getTabBarMetrics(null), { height: 64, paddingTop: 6, paddingBottom: 8 });
     assert.deepEqual(getTabBarMetrics(-10), { height: 64, paddingTop: 6, paddingBottom: 8 });
     assert.deepEqual(getTabBarMetrics(Number.NaN), { height: 64, paddingTop: 6, paddingBottom: 8 });
+  });
+});
+
+describe('tab bar press (Expo Router 58: emitter + navigateToTab)', () => {
+  it('emits tabPress dengan target route dan canPreventDefault', () => {
+    const emitted = [];
+    pressTab({
+      focused: false,
+      routeKey: 'queue-key',
+      emit: (event) => {
+        emitted.push(event);
+        return { defaultPrevented: false };
+      },
+      navigateToTab: () => {},
+    });
+    assert.deepEqual(emitted, [
+      { type: 'tabPress', target: 'queue-key', canPreventDefault: true },
+    ]);
+  });
+
+  it('navigasi saat tab tidak fokus dan event tidak dicegah', () => {
+    const navigated = [];
+    pressTab({
+      focused: false,
+      routeKey: 'profile-key',
+      emit: () => ({ defaultPrevented: false }),
+      navigateToTab: (key) => navigated.push(key),
+    });
+    assert.deepEqual(navigated, ['profile-key']);
+  });
+
+  it('tidak navigasi saat tab sudah fokus', () => {
+    const navigated = [];
+    pressTab({
+      focused: true,
+      routeKey: 'queue-key',
+      emit: () => ({ defaultPrevented: false }),
+      navigateToTab: (key) => navigated.push(key),
+    });
+    assert.deepEqual(navigated, []);
+  });
+
+  it('tidak navigasi saat event dicegah', () => {
+    const navigated = [];
+    pressTab({
+      focused: false,
+      routeKey: 'queue-key',
+      emit: () => ({ defaultPrevented: true }),
+      navigateToTab: (key) => navigated.push(key),
+    });
+    assert.deepEqual(navigated, []);
   });
 });

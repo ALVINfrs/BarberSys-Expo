@@ -1,10 +1,13 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useAppTheme } from '@/context/ThemeContext';
-import { ThemeSwitch } from '@/components/ThemeSwitch';
+import { Fonts } from '@/constants/fonts';
+import { AppText } from '@/components/ui/text';
+import { Badge } from '@/components/ui/badge';
+import { Reveal } from '@/components/ui/reveal';
 
 interface RoleHeaderProps {
   title: string;
@@ -25,22 +28,26 @@ export const RoleHeader: React.FC<RoleHeaderProps> = ({ title }) => {
     }
   };
 
-  const getRoleBadgeColor = () => {
+  const badgeTone = (() => {
     switch (profile?.role) {
       case 'admin':
-        return theme.primary;
+        return 'danger' as const;
       case 'kasir':
-        return theme.secondary;
+        return 'info' as const;
       case 'barber':
-        return theme.amber;
+        return 'accent' as const;
       default:
-        return theme.success;
+        return 'success' as const;
     }
-  };
+  })();
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.surface, borderColor: theme.cardBorder }]}>
-      {/* Brand & Title Info */}
+    <View
+      style={[
+        styles.container,
+        { backgroundColor: theme.paper, borderColor: theme.ink },
+      ]}
+    >
       <View style={styles.left}>
         <View style={styles.brandRow}>
           <Image
@@ -48,34 +55,43 @@ export const RoleHeader: React.FC<RoleHeaderProps> = ({ title }) => {
             style={styles.logoImage}
             resizeMode="contain"
           />
-          <View>
-            <Text style={[styles.brandText, { color: theme.ink }]}>BarberSys</Text>
-            <Text style={[styles.title, { color: theme.inkMuted }]}>{title}</Text>
+          <View style={{ flexShrink: 1 }}>
+            <AppText
+              style={{
+                fontFamily: Fonts.display,
+                fontSize: 18,
+                lineHeight: 20,
+                letterSpacing: -0.6,
+              }}
+            >
+              BarberSys
+            </AppText>
+            <AppText variant="caption" color={theme.inkMuted} style={{ fontSize: 10 }}>
+              {title}
+            </AppText>
           </View>
         </View>
 
         {profile ? (
-          <View style={styles.badgeRow}>
-            <View style={[styles.roleBadge, { backgroundColor: getRoleBadgeColor(), borderColor: theme.cardBorder }]}>
-              <Text style={styles.roleBadgeText}>{profile.role.toUpperCase()}</Text>
-            </View>
-            <Text style={[styles.userName, { color: theme.inkMuted }]} numberOfLines={1}>
+          <Reveal delay={70} style={styles.badgeRow}>
+            <Badge label={profile.role.toUpperCase()} tone={badgeTone} />
+            <AppText
+              variant="body"
+              color={theme.inkMuted}
+              numberOfLines={1}
+              style={{ fontSize: 12, flexShrink: 1 }}
+            >
               {profile.nama || profile.email}
-            </Text>
-          </View>
+            </AppText>
+          </Reveal>
         ) : null}
       </View>
 
-      {/* Right Controls: ThemeSwitch + Avatar/Logout */}
       <View style={styles.rightActions}>
-        {/* Animated Smooth Switch */}
-        <ThemeSwitch size="sm" />
-
-        {/* User Avatar: foto profil bila ada, fallback aset Stitch */}
         {profile?.foto_url ? (
           <Image
             source={{ uri: profile.foto_url }}
-            style={[styles.avatar, { borderColor: theme.cardBorder }]}
+            style={[styles.avatar, { borderColor: theme.ink }]}
           />
         ) : (
           <Image
@@ -84,15 +100,23 @@ export const RoleHeader: React.FC<RoleHeaderProps> = ({ title }) => {
                 ? require('@/assets/images/barber_portrait.png')
                 : require('@/assets/images/user_avatar.png')
             }
-            style={[styles.avatar, { borderColor: theme.cardBorder }]}
+            style={[styles.avatar, { borderColor: theme.ink }]}
           />
         )}
 
-        {/* Logout Button */}
         <TouchableOpacity
-          style={[styles.logoutBtn, { backgroundColor: theme.surfaceContainerLow, borderColor: theme.cardBorder }]}
+          style={[
+            styles.logoutBtn,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.ink,
+              shadowColor: theme.shadow,
+            },
+          ]}
           onPress={handleLogout}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Keluar"
         >
           <MaterialIcons name="logout" size={16} color={theme.ink} />
         </TouchableOpacity>
@@ -110,6 +134,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
   },
   left: {
     flex: 1,
@@ -124,39 +149,11 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
   },
-  brandText: {
-    fontSize: 16,
-    fontWeight: '800',
-    lineHeight: 18,
-    letterSpacing: -0.3,
-  },
-  title: {
-    fontSize: 12,
-    fontWeight: '600',
-    lineHeight: 14,
-  },
   badgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 6,
     gap: 6,
-  },
-  roleBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 1.5,
-    borderWidth: 1.5,
-    borderRadius: 4,
-  },
-  roleBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
-  },
-  userName: {
-    fontSize: 12,
-    fontWeight: '600',
-    flexShrink: 1,
   },
   rightActions: {
     flexDirection: 'row',
@@ -164,21 +161,20 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   avatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1.5,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
   },
   logoutBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1.5,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#111111',
-    shadowOffset: { width: 1.5, height: 1.5 },
-    shadowOpacity: 0.8,
+    shadowOffset: { width: 2, height: 2 },
+    shadowOpacity: 1,
     shadowRadius: 0,
     elevation: 2,
   },

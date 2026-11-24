@@ -1,8 +1,9 @@
-import { Platform } from 'react-native';
+import type { StitchTheme } from '@/context/ThemeContext';
+import { Fonts } from '@/constants/fonts';
 
 /**
  * BarberSys Design Tokens & Theme
- * Sesuai panduan di docs/design.md (Neo-Brutalism)
+ * Sesuai panduan di docs/design.md (Neo-Brutalism Editorial)
  */
 
 export const lightTheme = {
@@ -35,38 +36,42 @@ export const darkTheme = {
   neutral: '#6E6E72',
 };
 
-export type AppTheme = typeof lightTheme;
+export type AppTheme = StitchTheme;
+
+export type CardAccent = 'crimson' | 'cobalt' | 'amber';
 
 export const Typography = {
   display: {
     fontSize: 40,
-    fontWeight: '800' as const,
+    fontFamily: Fonts.display,
+    letterSpacing: -1,
   },
   h1: {
     fontSize: 28,
-    fontWeight: '700' as const,
+    fontFamily: Fonts.display,
+    letterSpacing: -0.8,
   },
   h2: {
     fontSize: 20,
-    fontWeight: '700' as const,
+    fontFamily: Fonts.display,
+    letterSpacing: -0.4,
   },
   body: {
     fontSize: 16,
-    fontWeight: '400' as const,
+    fontFamily: Fonts.body,
   },
   caption: {
     fontSize: 13,
-    fontWeight: '500' as const,
+    fontFamily: Fonts.bodyMedium,
   },
   monoLg: {
     fontSize: 32,
-    fontWeight: '700' as const,
-    fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
+    fontFamily: Fonts.mono,
+    letterSpacing: -0.5,
   },
   monoSm: {
     fontSize: 14,
-    fontWeight: '600' as const,
-    fontFamily: Platform.select({ ios: 'Menlo', default: 'monospace' }),
+    fontFamily: Fonts.mono,
   },
 };
 
@@ -81,12 +86,25 @@ export const Spacing = {
   xxxl: 64,
 } as const;
 
-export const brutalistCard = (theme: AppTheme) => ({
+function accentColor(theme: AppTheme, accent?: CardAccent): string {
+  switch (accent) {
+    case 'crimson':
+      return theme.accentCrimson;
+    case 'cobalt':
+      return theme.accentCobalt;
+    case 'amber':
+      return theme.accentAmber;
+    default:
+      return theme.shadow;
+  }
+}
+
+export const brutalistCard = (theme: AppTheme, accent?: CardAccent) => ({
   backgroundColor: theme.surface,
   borderWidth: 2,
   borderColor: theme.ink,
-  borderRadius: 0,
-  shadowColor: theme.ink,
+  borderRadius: theme.radius.md,
+  shadowColor: accentColor(theme, accent),
   shadowOffset: { width: 4, height: 4 },
   shadowOpacity: 1,
   shadowRadius: 0,
@@ -95,12 +113,13 @@ export const brutalistCard = (theme: AppTheme) => ({
 
 export const brutalistButton = (theme: AppTheme, variant: 'primary' | 'secondary' | 'danger' | 'ghost' = 'primary') => {
   const base = {
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
-    borderRadius: 6,
+    borderRadius: theme.radius.md,
     alignItems: 'center' as const,
     justifyContent: 'center' as const,
     flexDirection: 'row' as const,
+    minHeight: 48,
   };
 
   switch (variant) {
@@ -110,7 +129,7 @@ export const brutalistButton = (theme: AppTheme, variant: 'primary' | 'secondary
         backgroundColor: theme.accentCrimson,
         borderWidth: 2,
         borderColor: theme.ink,
-        shadowColor: theme.ink,
+        shadowColor: theme.shadow,
         shadowOffset: { width: 3, height: 3 },
         shadowOpacity: 1,
         shadowRadius: 0,
@@ -122,7 +141,7 @@ export const brutalistButton = (theme: AppTheme, variant: 'primary' | 'secondary
         backgroundColor: theme.surface,
         borderWidth: 2,
         borderColor: theme.ink,
-        shadowColor: theme.ink,
+        shadowColor: theme.shadow,
         shadowOffset: { width: 3, height: 3 },
         shadowOpacity: 1,
         shadowRadius: 0,
@@ -134,7 +153,7 @@ export const brutalistButton = (theme: AppTheme, variant: 'primary' | 'secondary
         backgroundColor: theme.danger,
         borderWidth: 2,
         borderColor: theme.ink,
-        shadowColor: theme.ink,
+        shadowColor: theme.shadow,
         shadowOffset: { width: 3, height: 3 },
         shadowOpacity: 1,
         shadowRadius: 0,
@@ -152,11 +171,13 @@ export const brutalistButton = (theme: AppTheme, variant: 'primary' | 'secondary
 
 export const brutalistInput = (theme: AppTheme, isFocused: boolean = false) => ({
   backgroundColor: theme.surface,
-  borderWidth: 1.5,
+  borderWidth: 2,
   borderColor: isFocused ? theme.accentCobalt : theme.ink,
-  borderRadius: 4,
+  borderRadius: theme.radius.md,
   paddingHorizontal: 12,
-  paddingVertical: 10,
+  paddingVertical: 12,
+  minHeight: 48,
   color: theme.ink,
   fontSize: 16,
+  fontFamily: Fonts.body,
 });

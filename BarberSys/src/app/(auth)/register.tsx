@@ -1,23 +1,46 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  useWindowDimensions,
+  StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
-import { brutalistButton, brutalistInput, brutalistCard } from '@/constants/theme';
 import { useAppTheme } from '@/context/ThemeContext';
+import { AuthBrandPanel } from '@/components/AuthBrandPanel';
+import { AppText } from '@/components/ui/text';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { TextField } from '@/components/ui/text-field';
+import { Reveal } from '@/components/ui/reveal';
+import { PoleStrip } from '@/components/ui/pole-strip';
+import { PressableScale } from '@/components/ui/pressable-scale';
+
+type StrengthLevel = 'lemah' | 'sedang' | 'kuat';
+
+function getPasswordStrength(password: string): {
+  level: StrengthLevel;
+  score: number;
+} {
+  let score = 0;
+  if (password.length >= 8) score += 1;
+  if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score += 1;
+  if (/[0-9]/.test(password) || /[^A-Za-z0-9]/.test(password)) score += 1;
+
+  if (score >= 3) return { level: 'kuat', score: 3 };
+  if (score === 2) return { level: 'sedang', score: 2 };
+  return { level: 'lemah', score };
+}
 
 export default function RegisterScreen() {
   const { theme } = useAppTheme();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const wide = width >= 900;
 
   const [nama, setNama] = useState('');
   const [email, setEmail] = useState('');
@@ -25,19 +48,24 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  const [namaFocused, setNamaFocused] = useState(false);
-  const [emailFocused, setEmailFocused] = useState(false);
-  const [noHpFocused, setNoHpFocused] = useState(false);
-  const [passwordFocused, setPasswordFocused] = useState(false);
-  const [confirmPasswordFocused, setConfirmPasswordFocused] = useState(false);
-
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const strength = getPasswordStrength(password);
+  const strengthColor =
+    strength.level === 'kuat'
+      ? theme.success
+      : strength.level === 'sedang'
+        ? theme.amber
+        : theme.danger;
+  const confirmError =
+    confirmPassword.length > 0 && confirmPassword !== password
+      ? 'Konfirmasi password tidak cocok.'
+      : null;
 
   const handleRegister = async () => {
     setErrorMessage(null);
 
-    // Validation checks
     if (!nama.trim() || !email.trim() || !noHp.trim() || !password || !confirmPassword) {
       setErrorMessage('Seluruh field wajib diisi.');
       return;
@@ -49,8 +77,7 @@ export default function RegisterScreen() {
       return;
     }
 
-    const phoneRegex = /^[0-9]+$/;
-    if (!phoneRegex.test(noHp.trim())) {
+    if (!/^[0-9]+$/.test(noHp.trim())) {
       setErrorMessage('Nomor HP hanya boleh berisi angka.');
       return;
     }
@@ -67,7 +94,7 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email: email.trim(),
         password,
         options: {
@@ -86,7 +113,6 @@ export default function RegisterScreen() {
       }
 
       setLoading(false);
-      // Success -> navigate to login or home
       router.replace('/(auth)/login' as any);
     } catch (err: any) {
       setErrorMessage(err.message || 'Gagal mendaftar.');
@@ -99,129 +125,183 @@ export default function RegisterScreen() {
     email.trim().length > 0 &&
     noHp.trim().length > 0 &&
     password.length >= 8 &&
-    confirmPassword.length >= 8;
+    confirmPassword.length >= 8 &&
+    confirmPassword === password;
+
+  const formColumn = (
+    <Reveal delay={wide ? 120 : 0} style={wide ? styles.formColumnWide : undefined}>
+      {!wide ? <AuthBrandPanel compact /> : null}
+
+      <Card tone="surface" accent="cobalt" style={{ padding: 0, overflow: 'hidden' }}>
+        <View
+          style={[
+            styles.cardHeader,
+            { backgroundColor: theme.paper, borderBottomColor: theme.ink },
+          ]}
+        >
+          <AppText variant="caption" color={theme.inkMuted}>
+            DAFTAR AKUN
+          </AppText>
+          <AppText variant="h1">Buat akun pelanggan</AppText>
+          <AppText variant="body" color={theme.inkMuted} style={{ fontSize: 13 }}>
+            Mulai ambil antrian online dalam hitungan menit.
+          </AppText>
+        </View>
+
+        <View style={{ padding: 16, gap: 14 }}>
+          <Reveal delay={100}>
+            <TextField
+              label="Nama Lengkap"
+              icon="person-outline"
+              placeholder="Contoh: Budi Santoso"
+              value={nama}
+              onChangeText={setNama}
+              autoComplete="name"
+              testID="register-nama"
+            />
+          </Reveal>
+
+          <Reveal delay={130}>
+            <TextField
+              label="Email"
+              icon="alternate-email"
+              placeholder="budi@email.com"
+              value={email}
+              onChangeText={setEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoComplete="email"
+              testID="register-email"
+            />
+          </Reveal>
+
+          <Reveal delay={160}>
+            <TextField
+              label="Nomor HP"
+              icon="phone"
+              placeholder="081234567890"
+              value={noHp}
+              onChangeText={setNoHp}
+              keyboardType="number-pad"
+              autoComplete="tel"
+              testID="register-hp"
+            />
+          </Reveal>
+
+          <Reveal delay={190}>
+            <View style={{ gap: 6 }}>
+              <TextField
+                label="Password (Min. 8 Karakter)"
+                icon="lock"
+                placeholder="••••••••"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                secureToggle
+                autoComplete="new-password"
+                testID="register-password"
+              />
+              <View style={{ flexDirection: 'row', gap: 4 }}>
+                {[0, 1, 2].map((index) => (
+                  <View
+                    key={String(index)}
+                    style={{
+                      flex: 1,
+                      height: 5,
+                      borderRadius: 3,
+                      borderWidth: 1,
+                      borderColor: theme.inkMuted,
+                      backgroundColor:
+                        index < strength.score ? strengthColor : theme.surfaceContainerHigh,
+                    }}
+                  />
+                ))}
+              </View>
+              <AppText variant="caption" color={strengthColor} style={{ letterSpacing: 0.4 }}>
+                Kekuatan: {strength.level}
+              </AppText>
+            </View>
+          </Reveal>
+
+          <Reveal delay={220}>
+            <TextField
+              label="Konfirmasi Password"
+              icon="lock-outline"
+              placeholder="••••••••"
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              secureTextEntry
+              secureToggle
+              autoComplete="new-password"
+              error={confirmError}
+              testID="register-confirm"
+            />
+          </Reveal>
+
+          {errorMessage ? (
+            <View
+              style={[
+                styles.errorBox,
+                { borderColor: theme.danger, backgroundColor: theme.surfaceContainerLow },
+              ]}
+            >
+              <MaterialIcons name="error-outline" size={16} color={theme.danger} />
+              <AppText
+                variant="caption"
+                color={theme.danger}
+                style={{ textTransform: 'none', letterSpacing: 0.2, flex: 1 }}
+              >
+                {errorMessage}
+              </AppText>
+            </View>
+          ) : null}
+
+          <Button
+            label="Daftar Sekarang"
+            onPress={handleRegister}
+            loading={loading}
+            disabled={!isFormValid}
+            fullWidth
+            testID="register-submit"
+          />
+
+          <View style={styles.footerRow}>
+            <AppText variant="body" color={theme.inkMuted} style={{ fontSize: 13 }}>
+              Sudah punya akun?
+            </AppText>
+            <PressableScale
+              onPress={() => router.replace('/(auth)/login' as any)}
+              accessibilityRole="link"
+            >
+              <AppText
+                variant="body"
+                color={theme.secondary}
+                style={{ fontSize: 13, textDecorationLine: 'underline' }}
+              >
+                Masuk di sini
+              </AppText>
+            </PressableScale>
+          </View>
+        </View>
+      </Card>
+
+      {!wide ? <PoleStrip height={6} animated style={{ borderRadius: 3 }} /> : null}
+    </Reveal>
+  );
 
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: theme.bg }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: theme.ink }]}>Daftar Akun Pelanggan</Text>
-          <Text style={[styles.subtitle, { color: theme.inkMuted }]}>
-            Buat akun untuk mulai mengambil antrian secara online.
-          </Text>
-        </View>
-
-        {/* Card Form */}
-        <View style={[styles.card, brutalistCard(theme as any)]}>
-          {/* Nama Field */}
-          <View style={styles.fieldGroup}>
-            <Text style={[styles.label, { color: theme.ink }]}>Nama Lengkap</Text>
-            <TextInput
-              style={[brutalistInput(theme as any, namaFocused)]}
-              placeholder="Contoh: Budi Santoso"
-              placeholderTextColor={theme.inkMuted}
-              value={nama}
-              onChangeText={setNama}
-              onFocus={() => setNamaFocused(true)}
-              onBlur={() => setNamaFocused(false)}
-            />
-          </View>
-
-          {/* Email Field */}
-          <View style={styles.fieldGroup}>
-            <Text style={[styles.label, { color: theme.ink }]}>Email</Text>
-            <TextInput
-              style={[brutalistInput(theme as any, emailFocused)]}
-              placeholder="budi@email.com"
-              placeholderTextColor={theme.inkMuted}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-              onFocus={() => setEmailFocused(true)}
-              onBlur={() => setEmailFocused(false)}
-            />
-          </View>
-
-          {/* No HP Field */}
-          <View style={styles.fieldGroup}>
-            <Text style={[styles.label, { color: theme.ink }]}>Nomor HP</Text>
-            <TextInput
-              style={[brutalistInput(theme as any, noHpFocused)]}
-              placeholder="081234567890"
-              placeholderTextColor={theme.inkMuted}
-              value={noHp}
-              onChangeText={setNoHp}
-              keyboardType="number-pad"
-              onFocus={() => setNoHpFocused(true)}
-              onBlur={() => setNoHpFocused(false)}
-            />
-          </View>
-
-          {/* Password Field */}
-          <View style={styles.fieldGroup}>
-            <Text style={[styles.label, { color: theme.ink }]}>Password (Min. 8 Karakter)</Text>
-            <TextInput
-              style={[brutalistInput(theme as any, passwordFocused)]}
-              placeholder="••••••••"
-              placeholderTextColor={theme.inkMuted}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              onFocus={() => setPasswordFocused(true)}
-              onBlur={() => setPasswordFocused(false)}
-            />
-          </View>
-
-          {/* Confirm Password Field */}
-          <View style={styles.fieldGroup}>
-            <Text style={[styles.label, { color: theme.ink }]}>Konfirmasi Password</Text>
-            <TextInput
-              style={[brutalistInput(theme as any, confirmPasswordFocused)]}
-              placeholder="••••••••"
-              placeholderTextColor={theme.inkMuted}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry
-              onFocus={() => setConfirmPasswordFocused(true)}
-              onBlur={() => setConfirmPasswordFocused(false)}
-            />
-          </View>
-
-          {/* Error Banner */}
-          {errorMessage ? (
-            <View style={[styles.errorContainer, { borderColor: theme.danger }]}>
-              <Text style={[styles.errorText, { color: theme.danger }]}>{errorMessage}</Text>
-            </View>
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <View style={[styles.shell, wide && styles.shellWide]}>
+          {wide ? (
+            <Reveal style={styles.brandColumn}>
+              <AuthBrandPanel />
+            </Reveal>
           ) : null}
-
-          {/* Submit Button */}
-          <TouchableOpacity
-            style={[
-              brutalistButton(theme as any, 'primary'),
-              { marginTop: 10, opacity: isFormValid && !loading ? 1 : 0.6 },
-            ]}
-            onPress={handleRegister}
-            disabled={!isFormValid || loading}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.primaryButtonText}>DAFTAR SEKARANG</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Footer Link */}
-        <View style={styles.footerRow}>
-          <Text style={[styles.footerText, { color: theme.inkMuted }]}>Sudah punya akun? </Text>
-          <TouchableOpacity onPress={() => router.push('/(auth)/login' as any)}>
-            <Text style={[styles.footerLink, { color: theme.secondary }]}>Masuk di sini</Text>
-          </TouchableOpacity>
+          {formColumn}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -229,62 +309,51 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    paddingTop: 50,
+  scroll: {
+    flexGrow: 1,
+    padding: 18,
+    paddingTop: 44,
     paddingBottom: 40,
   },
-  header: {
-    marginBottom: 20,
+  shell: {
+    width: '100%',
+    gap: 18,
   },
-  title: {
-    fontSize: 26,
-    fontWeight: '800',
+  shellWide: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 28,
+    maxWidth: 1180,
+    alignSelf: 'center',
+    paddingVertical: 16,
   },
-  subtitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginTop: 4,
+  brandColumn: {
+    flex: 1.05,
   },
-  card: {
-    padding: 20,
-    marginBottom: 20,
+  formColumnWide: {
+    flex: 1,
+    maxWidth: 480,
+    justifyContent: 'center',
   },
-  fieldGroup: {
-    marginBottom: 12,
+  cardHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 2,
+    gap: 3,
   },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  errorContainer: {
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     borderLeftWidth: 3,
-    paddingLeft: 8,
+    paddingHorizontal: 8,
     paddingVertical: 6,
-    marginVertical: 8,
-  },
-  errorText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 15,
-    letterSpacing: 0.5,
   },
   footerRow: {
     flexDirection: 'row',
-    justify: 'center',
     alignItems: 'center',
-  },
-  footerText: {
-    fontSize: 14,
-  },
-  footerLink: {
-    fontSize: 14,
-    fontWeight: '700',
-    textDecorationLine: 'underline',
+    justifyContent: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
   },
 });
