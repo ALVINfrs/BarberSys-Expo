@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import { useRouter } from 'expo-router';
 import * as XLSX from 'xlsx';
 import { writeAsStringAsync, cacheDirectory, EncodingType } from 'expo-file-system/legacy';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -28,6 +29,7 @@ const FILTER_LABEL: Record<Filter, string> = {
 
 export default function AdminLaporanScreen() {
   const { theme } = useAppTheme();
+  const router = useRouter();
   const [filter, setFilter] = useState<Filter>('hari');
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<any[]>([]);
@@ -197,6 +199,18 @@ export default function AdminLaporanScreen() {
             style={{ flex: 1 }}
           />
         </View>
+
+        <PressableScale
+          onPress={() => router.push('/admin/rating' as any)}
+          accessibilityRole="button"
+          style={[styles.ratingLink, { borderColor: theme.ink, backgroundColor: theme.surface }]}
+        >
+          <MaterialIcons name="star" size={18} color={theme.amber} />
+          <AppText variant="body" style={{ fontSize: 13, flex: 1 }}>
+            Lihat Rating & Komentar Pelanggan
+          </AppText>
+          <MaterialIcons name="chevron-right" size={18} color={theme.ink} />
+        </PressableScale>
       </ScrollView>
     </View>
   );
@@ -205,6 +219,14 @@ export default function AdminLaporanScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { padding: 16, paddingBottom: 32, gap: 14 },
+  ratingLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 2,
+    borderRadius: 10,
+    padding: 12,
+  },
   filterChip: {
     borderWidth: 2,
     borderRadius: 999,
