@@ -13,6 +13,7 @@
 | 7E | `2026-11-24-display-tv-vite.md` | ✅ Selesai | lihat `git log` pesan "Fase 7E" |
 | 7F | `2026-11-24-tip-kamera-rating.md` | ✅ Selesai | lihat `git log` pesan "Fase 7F" |
 | 7G | (diskusi & persetujuan di chat) | ✅ Selesai | lihat `git log` pesan "Fase 7G" |
+| 7H | (diskusi & persetujuan di chat) | ✅ Selesai | lihat `git log` pesan "Fase 7H" |
 
 ## Rulings
 - Commit policy diubah user: commit per fase setelah test hijau (awalnya "hanya atas perintah").
