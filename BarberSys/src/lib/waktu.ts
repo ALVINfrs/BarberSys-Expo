@@ -96,6 +96,22 @@ export function startOfDayWIBISO(ref: Date = new Date()): string {
   return new Date(Date.UTC(p.year, p.month - 1, p.day) - WIB_OFFSET_MS).toISOString();
 }
 
+/** Awal hari WIB berikutnya (00:00) sebagai instant ISO/UTC — batas atas eksklusif. */
+export function startOfNextDayWIBISO(ref: Date = new Date()): string {
+  const p = wibParts(ref);
+  return new Date(Date.UTC(p.year, p.month - 1, p.day + 1) - WIB_OFFSET_MS).toISOString();
+}
+
+/**
+ * Tanggal WIB digeser `days`, dikembalikan pada pukul 12:00 WIB.
+ * Tengah hari dipilih agar pergantian tanggal tidak pernah bergeser karena
+ * offset timezone device.
+ */
+export function addWIBDays(ref: Date, days: number): Date {
+  const p = wibParts(ref);
+  return new Date(Date.UTC(p.year, p.month - 1, p.day + days, 12) - WIB_OFFSET_MS);
+}
+
 /** Awal minggu WIB (Senin 00:00) sebagai instant ISO/UTC. */
 export function startOfWeekWIBISO(ref: Date = new Date()): string {
   const p = wibParts(ref);

@@ -7,6 +7,8 @@ import {
   formatJamHHMM,
   isSameWIBDate,
   startOfDayWIBISO,
+  startOfNextDayWIBISO,
+  addWIBDays,
   startOfWeekWIBISO,
   startOfMonthWIBISO,
   describeHoldUntil,
@@ -53,6 +55,24 @@ describe('waktu WIB', () => {
     assert.equal(
       startOfDayWIBISO(new Date('2026-11-18T02:00:00.000Z')),
       '2026-11-17T17:00:00.000Z'
+    );
+  });
+
+  it('startOfNextDayWIBISO = 00:00 WIB hari berikutnya', () => {
+    assert.equal(
+      startOfNextDayWIBISO(new Date('2026-11-18T02:00:00.000Z')),
+      '2026-11-18T17:00:00.000Z'
+    );
+  });
+
+  it('addWIBDays menggeser tanggal WIB tanpa kehilangan hari', () => {
+    assert.equal(
+      addWIBDays(new Date('2026-11-18T02:00:00.000Z'), 1).toISOString(),
+      '2026-11-19T05:00:00.000Z'
+    );
+    assert.equal(
+      addWIBDays(new Date('2026-11-18T20:00:00.000Z'), -1).toISOString(),
+      '2026-11-18T05:00:00.000Z'
     );
   });
 
