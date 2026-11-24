@@ -5,7 +5,13 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '@/lib/supabase';
 import { RoleHeader } from '@/components/RoleHeader';
 import { useAppTheme } from '@/context/ThemeContext';
-import { startOfDayWIBISO } from '@/lib/waktu';
+import { addWIBDays, formatWIBDate, formatWIBTime, startOfDayWIBISO } from '@/lib/waktu';
+import {
+  barberPerformance,
+  dailyRevenue,
+  latestRatings,
+  type DashboardTransaction,
+} from '@/lib/dashboard';
 import { AppText } from '@/components/ui/text';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -14,45 +20,138 @@ import { PressableScale } from '@/components/ui/pressable-scale';
 import { Reveal } from '@/components/ui/reveal';
 import { Skeleton } from '@/components/ui/skeleton';
 
+interface QueueRow {
+  id: string;
+  nomor_antrian: number;
+  status: string;
+  tip_amount: number;
+  rating: number | null;
+  komentar: string | null;
+  completed_at: string | null;
+  created_at: string;
+  barber_id: string | null;
+  kursi_nomor: number | null;
+  nama_customer: string | null;
+  treatments: { harga: number | null; nama: string | null } | null;
+  customer: { nama: string | null } | null;
+  barber: { nama: string | null } | null;
+}
+
+interface LiveQueue {
+  id: string;
+  nomor_antrian: number;
+  status: string;
+  kursi_nomor: number | null;
+  treatments: { nama: string | null } | null;
+  barber: { nama: string | null } | null;
+}
+
+const SHORTCUTS = [
+  { label: 'Laporan', icon: 'analytics' as const, route: '/admin/laporan' },
+  { label: 'Rating', icon: 'star' as const, route: '/admin/rating' },
+  { label: 'Pegawai', icon: 'people-outline' as const, route: '/admin/staff' },
+  { label: 'Display', icon: 'tv' as const, route: '/display' },
+];
+
+function SectionTitle({ title, subtitle }: { title: string; subtitle?: string }) {
+  const { theme } = useAppTheme();
+  return (
+    <View style={{ gap: 2 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View
+          style={{
+            width: 18,
+            height: 4,
+            borderRadius: 2,
+            backgroundColor: theme.accentAmber,
+            borderWidth: 1,
+            borderColor: theme.ink,
+          }}
+        />
+        <AppText variant="h2">{title}</AppText>
+      </View>
+      {subtitle ? (
+        <AppText variant="body" color={theme.inkMuted} style={{ fontSize: 12 }}>
+          {subtitle}
+        </AppText>
+      ) : null}
+    </View>
+  );
+}
+
 export default function AdminRingkasanScreen() {
   const { theme } = useAppTheme();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [toko, setToko] = useState<{ nama_toko: string | null; alamat: string | null } | null>(null);
+  const [toko, setToko] = useState<{ nama_toko: string | null; alamat: string | null; jumlah_kursi: number } | null>(null);
   const [omset, setOmset] = useState(0);
   const [tiket, setTiket] = useState(0);
   const [kepuasan, setKepuasan] = useState<{ avg: number; count: number } | null>(null);
   const [barberAktif, setBarberAktif] = useState<{ aktif: number; total: number } | null>(null);
+  const [weekly, setWeekly] = useState<DashboardTransaction[]>([]);
+  const [liveQueues, setLiveQueues] = useState<LiveQueue[]>([]);
 
   const fetchData = async () => {
     try {
       const dayStartIso = startOfDayWIBISO();
-      const { data: shop } = await supabase.from('barbershop_settings').select('nama_toko, alamat').limit(1).single();
-      if (shop) setToko(shop as any);
+      const weekStartIso = startOfDayWIBISO(addWIBDays(new Date(), -6));
 
-      const { data: lunasQ } = await supabase.from('queue').select('id, tip_amount, treatments(harga)').eq('status', 'lunas').gte('completed_at', dayStartIso);
-      const list = (lunasQ as any[]) || [];
-      setTiket(list.length);
+      const [
+        shopRes,
+        lunasRes,
+        rateRes,
+        barbersRes,
+        weekRes,
+        liveRes,
+      ] = await Promise.all([
+        supabase.from('barbershop_settings').select('nama_toko, alamat, jumlah_kursi').limit(1).single(),
+        supabase.from('queue').select('id, tip_amount, treatments(harga)').eq('status', 'lunas').gte('completed_at', dayStartIso),
+        supabase.rpc('barber_rating_stats'),
+        supabase.from('profiles').select('id, status_kerja, status_akun').eq('role', 'barber').eq('status_akun', 'aktif'),
+        supabase
+          .from('queue')
+          .select(
+            'id, nomor_antrian, status, tip_amount, rating, komentar, completed_at, created_at, ' +
+              'barber_id, kursi_nomor, nama_customer, treatments(harga, nama), ' +
+              'customer:profiles!queue_user_id_fkey(nama), barber:profiles!queue_barber_id_fkey(nama)'
+          )
+          .eq('status', 'lunas')
+          .gte('completed_at', weekStartIso)
+          .order('completed_at', { ascending: false })
+          .limit(200),
+        supabase
+          .from('queue')
+          .select('id, nomor_antrian, status, kursi_nomor, treatments(nama), barber:profiles!queue_barber_id_fkey(nama)')
+          .in('status', ['menunggu', 'dipanggil', 'dilayani'])
+          .order('created_at', { ascending: true }),
+      ]);
+
+      if (shopRes.data) setToko(shopRes.data as any);
+
+      const todayList = (lunasRes.data as any[]) || [];
+      setTiket(todayList.length);
       let sum = 0;
-      if (list.length > 0) {
-        const ids = list.map((q) => q.id);
-        const { data: qp } = await supabase.from('queue_products').select('queue_id, subtotal').in('queue_id', ids);
+      if (todayList.length > 0) {
+        const { data: qp } = await supabase
+          .from('queue_products')
+          .select('queue_id, subtotal')
+          .in('queue_id', todayList.map((q) => q.id));
         const map: Record<string, number> = {};
         ((qp as any[]) || []).forEach((r) => {
           map[r.queue_id] = (map[r.queue_id] || 0) + (r.subtotal || 0);
         });
-        list.forEach((q) => {
+        todayList.forEach((q) => {
           sum += (q.treatments?.harga || 0) + (map[q.id] || 0) + (q.tip_amount || 0);
         });
       }
       setOmset(sum);
 
-      const { data: rateData } = await supabase.rpc('barber_rating_stats');
-      if (rateData && (rateData as any[]).length > 0) {
-        const all = (rateData as any[]) || [];
-        let tot = 0, cnt = 0;
-        all.forEach((r) => {
+      const rateData = rateRes.data as any[];
+      if (rateData && rateData.length > 0) {
+        let tot = 0;
+        let cnt = 0;
+        rateData.forEach((r) => {
           tot += Number(r.avg_rating) * Number(r.rating_count);
           cnt += Number(r.rating_count);
         });
@@ -64,10 +163,37 @@ export default function AdminRingkasanScreen() {
         else setKepuasan(null);
       }
 
-      const { data: barbers } = await supabase.from('profiles').select('id, status_kerja, status_akun').eq('role', 'barber').eq('status_akun', 'aktif');
-      const total = (barbers as any[])?.length || 0;
-      const aktif = (barbers as any[])?.filter((b) => b.status_kerja !== 'istirahat').length || 0;
-      setBarberAktif({ aktif, total });
+      const barbers = (barbersRes.data as any[]) || [];
+      setBarberAktif({
+        aktif: barbers.filter((b) => b.status_kerja !== 'istirahat').length,
+        total: barbers.length,
+      });
+
+      const weekRows = (weekRes.data as unknown as QueueRow[]) || [];
+      let productMap: Record<string, number> = {};
+      if (weekRows.length > 0) {
+        const { data: qpWeek } = await supabase
+          .from('queue_products')
+          .select('queue_id, subtotal')
+          .in('queue_id', weekRows.map((q) => q.id));
+        productMap = {};
+        ((qpWeek as any[]) || []).forEach((r) => {
+          productMap[r.queue_id] = (productMap[r.queue_id] || 0) + (r.subtotal || 0);
+        });
+      }
+      setWeekly(
+        weekRows.map((q) => ({
+          tanggalIso: q.completed_at || q.created_at,
+          total: (q.treatments?.harga || 0) + (productMap[q.id] || 0) + (q.tip_amount || 0),
+          barberId: q.barber_id,
+          barberNama: q.barber?.nama || 'Barber Toko',
+          tip: q.tip_amount || 0,
+          rating: q.rating,
+          komentar: q.komentar || null,
+          customerNama: q.customer?.nama || q.nama_customer || 'Pelanggan',
+        }))
+      );
+      setLiveQueues((liveRes.data as unknown as LiveQueue[]) || []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -78,48 +204,36 @@ export default function AdminRingkasanScreen() {
 
   useEffect(() => {
     fetchData();
-    const ch = supabase.channel('admin-ringkasan').on('postgres_changes', { event: '*', schema: 'public', table: 'queue' }, () => fetchData()).on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => fetchData()).subscribe();
-    return () => { supabase.removeChannel(ch); };
+    const ch = supabase
+      .channel(`admin-dashboard-${Date.now()}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'queue' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => fetchData())
+      .subscribe();
+    return () => {
+      supabase.removeChannel(ch);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onRefresh = () => { setRefreshing(true); fetchData(); };
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchData();
+  };
   const fmt = (n: number) => 'Rp ' + n.toLocaleString('id-ID');
 
   const stats = [
-    {
-      label: 'Omset Hari Ini',
-      value: fmt(omset),
-      sub: `${tiket} tiket lunas`,
-      icon: 'trending-up' as const,
-      accent: 'crimson' as const,
-      color: theme.primary,
-    },
-    {
-      label: 'Tiket Selesai',
-      value: String(tiket),
-      sub: 'Hari ini',
-      icon: 'confirmation-number' as const,
-      accent: 'cobalt' as const,
-      color: theme.secondary,
-    },
-    {
-      label: 'Kepuasan',
-      value: kepuasan ? `${kepuasan.avg.toFixed(1)} / 5.0` : '—',
-      sub: kepuasan ? `${kepuasan.count} rating` : 'Belum ada rating',
-      icon: 'star' as const,
-      accent: 'amber' as const,
-      color: theme.amber,
-    },
-    {
-      label: 'Barber Aktif',
-      value: barberAktif ? `${barberAktif.aktif} / ${barberAktif.total}` : '—',
-      sub: 'Tidak sedang istirahat',
-      icon: 'content-cut' as const,
-      accent: undefined,
-      color: theme.success,
-    },
+    { label: 'Omset Hari Ini', value: fmt(omset), sub: `${tiket} tiket lunas`, icon: 'trending-up' as const, accent: 'crimson' as const, color: theme.primary },
+    { label: 'Tiket Selesai', value: String(tiket), sub: 'Hari ini', icon: 'confirmation-number' as const, accent: 'cobalt' as const, color: theme.secondary },
+    { label: 'Kepuasan', value: kepuasan ? `${kepuasan.avg.toFixed(1)} / 5.0` : '—', sub: kepuasan ? `${kepuasan.count} rating` : 'Belum ada rating', icon: 'star' as const, accent: 'amber' as const, color: theme.amber },
+    { label: 'Barber Aktif', value: barberAktif ? `${barberAktif.aktif} / ${barberAktif.total}` : '—', sub: 'Tidak sedang istirahat', icon: 'content-cut' as const, accent: undefined, color: theme.success },
   ];
+
+  const revenue = dailyRevenue(weekly);
+  const maxRevenue = Math.max(1, ...revenue.map((d) => d.total));
+  const performance = barberPerformance(weekly);
+  const latest = latestRatings(weekly, 4);
+  const kursiDipakai = liveQueues.filter((q) => q.status === 'dilayani' && q.kursi_nomor != null).length;
+  const kursiTotal = toko?.jumlah_kursi || 7;
 
   return (
     <View style={[styles.flex, { backgroundColor: theme.bg }]}>
@@ -183,6 +297,180 @@ export default function AdminRingkasanScreen() {
           </View>
         )}
 
+        <Reveal>
+          <View style={{ gap: 8 }}>
+            <SectionTitle title="Omset 7 Hari Terakhir" subtitle="Total transaksi lunas per hari (WIB)." />
+            <Card style={{ gap: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, height: 130 }}>
+                {revenue.map((day) => {
+                  const height = Math.max(4, (day.total / maxRevenue) * 100);
+                  return (
+                    <View key={day.iso} style={{ flex: 1, alignItems: 'center', gap: 4 }}>
+                      <AppText variant="caption" color={theme.inkMuted} style={{ fontSize: 8 }}>
+                        {day.total > 0 ? `${Math.round(day.total / 1000)}k` : ''}
+                      </AppText>
+                      <View
+                        style={{
+                          width: '80%',
+                          height,
+                          backgroundColor: day.total > 0 ? theme.primary : theme.surfaceContainerHigh,
+                          borderWidth: 1.5,
+                          borderColor: theme.ink,
+                          borderRadius: 3,
+                        }}
+                      />
+                      <AppText variant="caption" color={theme.inkMuted} style={{ fontSize: 8 }}>
+                        {day.iso.slice(5)}
+                      </AppText>
+                    </View>
+                  );
+                })}
+              </View>
+            </Card>
+          </View>
+        </Reveal>
+
+        <Reveal>
+          <View style={{ gap: 8 }}>
+            <SectionTitle title="Performa Barber" subtitle="Omset, tip, dan rating 7 hari terakhir." />
+            {performance.length === 0 ? (
+              <Card style={{ gap: 4 }}>
+                <AppText variant="body" color={theme.inkMuted} style={{ fontSize: 13 }}>
+                  Belum ada transaksi lunas minggu ini.
+                </AppText>
+              </Card>
+            ) : (
+              performance.map((barber) => (
+                <Card key={barber.barberId || barber.nama} style={{ gap: 6 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <AppText variant="h2" style={{ fontSize: 16 }}>
+                      {barber.nama}
+                    </AppText>
+                    <Badge label={`${barber.avgRating.toFixed(1)} ★`} tone="accent" />
+                  </View>
+                  <AppText variant="body" color={theme.inkMuted} style={{ fontSize: 12 }}>
+                    {barber.transaksi} pelanggan · Tip {fmt(barber.tip)}
+                  </AppText>
+                  <AppText variant="mono" color={theme.primary} style={{ fontSize: 16 }}>
+                    {fmt(barber.omset)}
+                  </AppText>
+                </Card>
+              ))
+            )}
+          </View>
+        </Reveal>
+
+        <Reveal>
+          <View style={{ gap: 8 }}>
+            <SectionTitle title="Rating Terbaru" subtitle="Ulasan pelanggan minggu ini." />
+            {latest.length === 0 ? (
+              <Card style={{ gap: 4 }}>
+                <AppText variant="body" color={theme.inkMuted} style={{ fontSize: 13 }}>
+                  Belum ada rating minggu ini.
+                </AppText>
+              </Card>
+            ) : (
+              latest.map((item, index) => (
+                <Card key={`${item.tanggalIso}-${index}`} accent={index % 2 === 0 ? 'amber' : 'cobalt'} style={{ gap: 4 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <AppText variant="h2" style={{ fontSize: 15 }}>
+                      {item.customerNama}
+                    </AppText>
+                    <Badge label={`${item.rating ?? 0} / 5`} tone={(item.rating ?? 0) >= 4 ? 'success' : 'warning'} />
+                  </View>
+                  <AppText variant="body" color={theme.inkMuted} style={{ fontSize: 11 }}>
+                    {item.barberNama} · {formatWIBDate(item.tanggalIso)} {formatWIBTime(item.tanggalIso)}
+                  </AppText>
+                  {item.komentar ? (
+                    <AppText variant="body" style={{ fontSize: 13 }}>
+                      “{item.komentar}”
+                    </AppText>
+                  ) : null}
+                </Card>
+              ))
+            )}
+          </View>
+        </Reveal>
+
+        <Reveal>
+          <View style={{ gap: 8 }}>
+            <SectionTitle title="Antrian Live & Kursi" subtitle={`${kursiDipakai} dari ${kursiTotal} kursi sedang dipakai.`} />
+            <Card style={{ gap: 6 }}>
+              {liveQueues.length === 0 ? (
+                <AppText variant="body" color={theme.inkMuted} style={{ fontSize: 13 }}>
+                  Tidak ada antrian aktif saat ini.
+                </AppText>
+              ) : (
+                liveQueues.slice(0, 6).map((q) => (
+                  <View key={q.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <AppText variant="mono" style={{ fontSize: 14 }}>
+                      A{String(q.nomor_antrian).padStart(2, '0')}
+                    </AppText>
+                    <AppText variant="body" style={{ fontSize: 12, flex: 1 }} numberOfLines={1}>
+                      {q.treatments?.nama || 'Layanan'} · {q.barber?.nama || 'Barber'}
+                    </AppText>
+                    <Badge
+                      label={q.status.toUpperCase()}
+                      tone={q.status === 'dilayani' ? 'success' : q.status === 'dipanggil' ? 'accent' : 'neutral'}
+                    />
+                  </View>
+                ))
+              )}
+            </Card>
+          </View>
+        </Reveal>
+
+        <Reveal>
+          <View style={{ gap: 8 }}>
+            <SectionTitle title="Transaksi Terbaru" subtitle="Lunas minggu ini." />
+            <Card style={{ gap: 6 }}>
+              {weekly.length === 0 ? (
+                <AppText variant="body" color={theme.inkMuted} style={{ fontSize: 13 }}>
+                  Belum ada transaksi lunas.
+                </AppText>
+              ) : (
+                weekly.slice(0, 5).map((item, index) => (
+                  <View key={`${item.tanggalIso}-${index}`} style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8 }}>
+                    <View style={{ flex: 1, gap: 1 }}>
+                      <AppText variant="body" style={{ fontSize: 12 }}>
+                        {item.customerNama} · {item.barberNama}
+                      </AppText>
+                      <AppText variant="caption" color={theme.inkMuted} style={{ fontSize: 9 }}>
+                        {formatWIBDate(item.tanggalIso)} {formatWIBTime(item.tanggalIso)}
+                      </AppText>
+                    </View>
+                    <AppText variant="mono" style={{ fontSize: 13 }}>
+                      {fmt(item.total)}
+                    </AppText>
+                  </View>
+                ))
+              )}
+            </Card>
+          </View>
+        </Reveal>
+
+        <View style={{ gap: 8 }}>
+          <SectionTitle title="Pintasan" />
+          <View style={styles.grid}>
+            {SHORTCUTS.map((item) => (
+              <PressableScale
+                key={item.label}
+                onPress={() => router.push(item.route as any)}
+                accessibilityRole="button"
+                style={[
+                  styles.shortcut,
+                  { width: '48%', backgroundColor: theme.surface, borderColor: theme.ink },
+                ]}
+              >
+                <MaterialIcons name={item.icon} size={20} color={theme.primary} />
+                <AppText variant="body" style={{ fontSize: 13 }}>
+                  {item.label}
+                </AppText>
+              </PressableScale>
+            ))}
+          </View>
+        </View>
+
         <PressableScale
           onPress={() => router.push('/admin/rating' as any)}
           accessibilityRole="button"
@@ -211,8 +499,9 @@ export default function AdminRingkasanScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { padding: 16, paddingBottom: 32, gap: 14 },
+  container: { padding: 16, paddingBottom: 32, gap: 18 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  shortcut: { borderWidth: 2, borderRadius: 10, padding: 12, gap: 6 },
   linkCard: {
     borderWidth: 2,
     borderRadius: 10,
