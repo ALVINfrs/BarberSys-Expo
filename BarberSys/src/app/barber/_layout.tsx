@@ -37,6 +37,15 @@ export default function BarberLayout() {
         }}
       />
       <Tabs.Screen
+        name="performansi"
+        options={{
+          title: 'Performa',
+          tabBarIcon: ({ color }) => (
+            <MaterialIcons name="bar-chart" size={22} color={typeof color === 'string' ? color : theme.ink} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profil',
