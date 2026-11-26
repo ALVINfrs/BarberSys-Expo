@@ -954,6 +954,16 @@ npm run dev
 | Barber | `barber@barbersys.com` | `Password123!` |
 | Customer | `customer@barbersys.com` | `Password123!` |
 
+### 10.5 APK Android (EAS Build)
+
+Build internal dengan profil `preview` siap dipasang langsung di perangkat Android:
+
+- **[Unduh / pasang APK BarberSys](https://expo.dev/artifacts/eas/Vir1BCaunMZfIMaZHMSYrXpMILZZTz0uwkKsfn959ro.apk)**
+- Build ID: `cc46f89d-0aac-4424-9438-62baa2381bd5`
+- [Halaman detail build](https://expo.dev/accounts/alvinfrss/projects/BarberSys/builds/cc46f89d-0aac-4424-9438-62baa2381bd5)
+
+Sebelum memasang, aktifkan opsi *Install from unknown sources* di Android. APK memakai kredensial Supabase yang sama seperti pada `.env` dan dapat login dengan akun uji di atas.
+
 ---
 
 ## 11. Pengujian
